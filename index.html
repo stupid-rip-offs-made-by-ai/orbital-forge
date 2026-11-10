@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#05070f">
+  <title>Orbital Forge — build rockets, fly to the moon</title>
+  <meta name="description" content="A browser rocket-building and orbital-physics sandbox. Build a rocket, reach orbit, land on the moon.">
+  <link rel="icon" href="assets/textures/parts/pod_c1.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- loading -->
+  <div id="loading" class="screen">
+    <div class="load-box">
+      <h1>ORBITAL FORGE</h1>
+      <div class="load-track"><div id="load-bar"></div></div>
+      <noscript>This game needs JavaScript.</noscript>
+    </div>
+  </div>
+
+  <!-- main menu -->
+  <div id="menu" class="screen hidden">
+    <img id="menu-planet" alt="">
+    <div class="menu-inner">
+      <h1>ORBITAL<span>FORGE</span></h1>
+      <p class="tag">Build rockets. Fight gravity. Reach the moon.</p>
+      <div class="menu-btns">
+        <button id="m-build" class="btn primary">🛠 Build a rocket</button>
+        <button id="m-quick" class="btn">🚀 Quick launch</button>
+        <button id="m-help" class="btn">📖 How to fly</button>
+      </div>
+      <div class="menu-missions">
+        <div class="mm-head"><b>Missions</b><span id="menu-progress"></span></div>
+        <ul id="menu-missions" class="mission-list"></ul>
+        <button id="m-reset" class="link">Reset progress</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- builder -->
+  <div id="builder" class="screen hidden">
+    <header class="b-head">
+      <button id="b-back" class="btn sm">←</button>
+      <input id="b-name" maxlength="32" spellcheck="false" aria-label="Rocket name">
+      <select id="b-load" aria-label="Load rocket"></select>
+      <button id="b-save" class="btn sm">Save</button>
+      <button id="b-clear" class="btn sm">Clear</button>
+      <button id="b-stats-toggle" class="btn sm only-mobile">Stats</button>
+      <button id="b-launch" class="btn primary sm">Launch 🚀</button>
+    </header>
+    <div class="b-main">
+      <aside id="palette">
+        <div id="pal-tabs"></div>
+        <div id="pal-list"></div>
+      </aside>
+      <section id="stackview">
+        <div id="stack"></div>
+        <div id="sel-tools" class="hidden">
+          <button id="t-up" class="btn sm" title="Move up">▲</button>
+          <button id="t-down" class="btn sm" title="Move down">▼</button>
+          <button id="t-dup" class="btn sm" title="Duplicate">⧉</button>
+          <button id="t-del" class="btn sm danger" title="Remove">✕</button>
+        </div>
+      </section>
+      <aside id="stats-wrap"><canvas id="preview3d"></canvas><div class="pv-hint">Drag to spin</div><div id="stats"></div></aside>
+    </div>
+  </div>
+
+  <!-- flight -->
+  <div id="flight" class="screen hidden">
+    <canvas id="game"></canvas>
+    <canvas id="overlay"></canvas>
+    <div id="hud-top">
+      <div class="ro big"><span class="lbl">ALTITUDE</span><span id="r-alt">0 m</span><small id="r-radar"></small></div>
+      <div class="ro"><span class="lbl" id="r-spd-lbl">SURFACE</span><span id="r-spd">0 m/s</span><small id="r-vs"></small></div>
+      <div class="ro"><span class="lbl">APOAPSIS</span><span id="r-ap">—</span></div>
+      <div class="ro"><span class="lbl">PERIAPSIS</span><span id="r-pe">—</span></div>
+      <div class="ro sm-hide"><span class="lbl">MISSION</span><span id="r-met">T+ 00:00:00</span><small id="r-status"></small></div>
+    </div>
+    <div id="hud-tr">
+      <button id="b-warpd" class="hb">◀◀</button><span id="r-warp">×1</span><button id="b-warpu" class="hb">▶▶</button>
+      <button id="b-sound" class="hb">🔊</button>
+      <button id="b-menu" class="hb">☰</button>
+    </div>
+    <div id="hud-left">
+      <button id="b-full" class="hb sm">MAX</button>
+      <div id="thr"><div id="thr-fill"></div><span id="thr-val">0%</span></div>
+      <button id="b-cut" class="hb sm">CUT</button>
+    </div>
+    <div id="hud-right">
+      <div class="sas-title">SAS</div>
+      <button class="hb sas" data-sas="stab" title="Hold attitude (T)">HOLD</button>
+      <button class="hb sas" data-sas="pro" title="Prograde (1)">PRO</button>
+      <button class="hb sas" data-sas="retro" title="Retrograde (2)">RETRO</button>
+      <button class="hb sas" data-sas="radout" title="Radial out / up (3)">UP</button>
+      <button class="hb sas" data-sas="radin" title="Radial in (4)">DOWN</button>
+      <button class="hb sas" data-sas="off" title="SAS off">OFF</button>
+    </div>
+    <div id="hud-stage">
+      <canvas id="att" width="128" height="128"></canvas>
+      <div class="st-info">
+        <div class="fuel"><div id="fuel-fill"></div></div>
+        <div class="stage-row"><span id="r-dv"></span><span id="r-twr"></span><span id="r-g"></span></div>
+        <div class="next">Next: <b id="r-next"></b></div>
+      </div>
+    </div>
+    <div id="hud-bottom">
+      <button id="b-rotl" class="hb rot">⟲</button>
+      <button id="b-map" class="hb">MAP</button>
+      <button id="b-stage" class="hb stage">STAGE</button>
+      <button id="b-chute" class="hb">🪂</button>
+      <button id="b-rotr" class="hb rot">⟳</button>
+    </div>
+    <div id="hud-zoom">
+      <button id="b-focus" class="hb sm hidden">FOCUS</button>
+      <button id="b-view" class="hb sm" title="Reset camera (V)">VIEW</button>
+      <button id="b-zin" class="hb sm">＋</button>
+      <button id="b-zout" class="hb sm">－</button>
+    </div>
+
+    <div id="flight-menu" class="modal hidden">
+      <div class="modal-box">
+        <h2>Paused</h2>
+        <div class="col">
+          <button id="fm-resume" class="btn primary">Resume</button>
+          <button id="fm-revert" class="btn">↺ Revert to launch</button>
+          <button id="fm-build" class="btn">🛠 Edit rocket</button>
+          <button id="fm-menu" class="btn">Main menu</button>
+        </div>
+        <ul id="fm-missions" class="mission-list compact"></ul>
+      </div>
+    </div>
+    <div id="result" class="modal hidden">
+      <div class="modal-box">
+        <h2></h2>
+        <p></p>
+        <div class="missions-mini"></div>
+        <div class="col">
+          <button id="rs-revert" class="btn primary">↺ Try again</button>
+          <button id="rs-build" class="btn">🛠 Edit rocket</button>
+          <button id="rs-continue" class="btn">Keep watching</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- help -->
+  <div id="help" class="modal hidden">
+    <div class="modal-box wide">
+      <h2>How to fly</h2>
+      <div class="help-grid">
+        <div>
+          <h3>Building</h3>
+          <p>Stack parts top to bottom: command part → tanks → engine. A <b>decoupler</b> starts a new stage, so everything below it falls away when you stage. Engines only burn fuel from tanks in their own stage.</p>
+          <p>Keep the <b>first-stage TWR above ~1.3</b>. Put a <b>fin ring</b> near the bottom so the rocket flies nose-first, and a <b>parachute</b> on top to get home.</p>
+        </div>
+        <div>
+          <h3>Getting to orbit</h3>
+          <ol>
+            <li>Stage to light the engines and climb straight up.</li>
+            <li>At ~1 km and ~100 m/s, slowly tilt east (right).</li>
+            <li>By ~40 km be about halfway over. Cut the engines when your <b>Apoapsis</b> reaches ~80 km.</li>
+            <li>Coast to Apoapsis (use time warp), face horizon/prograde and burn until <b>Periapsis</b> is above 70 km.</li>
+          </ol>
+        </div>
+        <div>
+          <h3>Controls</h3>
+          <table class="keys">
+            <tr><td>Space</td><td>Stage</td></tr>
+            <tr><td>A / D</td><td>Rotate</td></tr>
+            <tr><td>Shift / Ctrl, W / S</td><td>Throttle up / down</td></tr>
+            <tr><td>Z / X</td><td>Full / cut throttle</td></tr>
+            <tr><td>T, 1–4</td><td>SAS hold, prograde, retro, up, down</td></tr>
+            <tr><td>M</td><td>Map view</td></tr>
+            <tr><td>, / .</td><td>Time warp</td></tr>
+            <tr><td>P</td><td>Parachute</td></tr>
+            <tr><td>Drag</td><td>Orbit the camera</td></tr>
+            <tr><td>Wheel / pinch</td><td>Zoom</td></tr>
+            <tr><td>V</td><td>Reset camera</td></tr>
+          </table>
+        </div>
+        <div>
+          <h3>To the moon</h3>
+          <p>From an 80 km orbit, wait (map view, time warp) until Lumen is rising about 110° ahead of you, then burn prograde until the orange trajectory shows a <b>Lumen Pe</b>. Burn retrograde at Lumen periapsis to capture, then land below 12 m/s with legs.</p>
+        </div>
+      </div>
+      <button class="btn primary" data-close>Got it</button>
+    </div>
+  </div>
+
+  <div id="toasts"></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
