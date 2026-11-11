@@ -55,12 +55,14 @@
         <div id="pal-list"></div>
       </aside>
       <section id="stackview">
+        <div id="b-hint" class="hidden"></div>
         <div id="stack"></div>
         <div id="sel-tools" class="hidden">
           <button id="t-up" class="btn sm" title="Move up">▲</button>
           <button id="t-down" class="btn sm" title="Move down">▼</button>
           <button id="t-dup" class="btn sm" title="Duplicate">⧉</button>
           <button id="t-del" class="btn sm danger" title="Remove">✕</button>
+          <button id="t-side" class="btn sm" title="Mount parts on both sides of the selected part">⇔ Sides</button>
         </div>
       </section>
       <aside id="stats-wrap"><canvas id="preview3d"></canvas><div class="pv-hint">Drag to spin</div><div id="stats"></div></aside>
@@ -78,6 +80,7 @@
       <div class="ro"><span class="lbl">PERIAPSIS</span><span id="r-pe">—</span></div>
       <div class="ro sm-hide"><span class="lbl">MISSION</span><span id="r-met">T+ 00:00:00</span><small id="r-status"></small></div>
     </div>
+    <div id="hud-target" class="hidden"></div>
     <div id="hud-tr">
       <button id="b-warpd" class="hb">◀◀</button><span id="r-warp">×1</span><button id="b-warpu" class="hb">▶▶</button>
       <button id="b-sound" class="hb">🔊</button>
@@ -113,6 +116,7 @@
       <button id="b-rotr" class="hb rot">⟳</button>
     </div>
     <div id="hud-zoom">
+      <button id="b-target" class="hb sm hidden" title="Cycle target">TARGET</button>
       <button id="b-focus" class="hb sm hidden">FOCUS</button>
       <button id="b-view" class="hb sm" title="Reset camera (V)">VIEW</button>
       <button id="b-zin" class="hb sm">＋</button>
@@ -182,7 +186,15 @@
         </div>
         <div>
           <h3>To the moon</h3>
-          <p>From an 80 km orbit, wait (map view, time warp) until Lumen is rising about 110° ahead of you, then burn prograde until the orange trajectory shows a <b>Lumen Pe</b>. Burn retrograde at Lumen periapsis to capture, then land below 12 m/s with legs.</p>
+          <p>From an 80 km orbit, open the map and tap <b>Lumen</b> to target it. The pink line tells you when the launch window opens and how big the burn is. Burn prograde until the path shows a <b>Lumen Pe</b>. Burn retrograde at Lumen periapsis to capture, then land below 12 m/s with legs.</p>
+        </div>
+        <div>
+          <h3>Side boosters</h3>
+          <p>In the builder, tap a part on your rocket, press <b>⇔ Sides</b>, then tap parts to mount them on both sides: a nose cone and a solid booster, drop tanks with engines, winglets, solar panels or radial parachutes. Side boosters fire with the stage they are on, and <b>STAGE</b> drops them when they are empty.</p>
+        </div>
+        <div>
+          <h3>Other planets</h3>
+          <p>Solara has five planets: Cinder, Aurea, Verdan, Ferra and the gas giant Jovara. Target a planet on the map and wait for <b>WINDOW OPEN</b> (time warp goes up to 1,000,000×). Burn prograde on the side of Verdan the line tells you, and stop when <b>Closest</b> is smallest or an encounter appears. Fine-tune once you are in deep space. The Nova nuclear engine is made for these trips.</p>
         </div>
       </div>
       <button class="btn primary" data-close>Got it</button>

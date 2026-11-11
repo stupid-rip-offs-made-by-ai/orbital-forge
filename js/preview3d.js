@@ -36,7 +36,7 @@ export class Preview3D {
     updateRocket(this.group, v, 1, 0);
     this.group.position.y = -v.minS; // stand on the ground
     this.group.userData.inner.position.y = 0;
-    this.len = Math.max(3, v.length, (v.com - v.minS) + 2);
+    this.len = Math.max(3, v.maxS - v.minS + 1, v.maxW * 3);
     this.scene.add(this.group);
   }
 

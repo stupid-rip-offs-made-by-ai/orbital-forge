@@ -1,12 +1,12 @@
 import {
-  P, M, G0, LAUNCH_TH, bodyPos, bodyVel, bodyRot, atmo, soiBody, gravity, orbitInfo, predict, terrainH, surfH, wrapA,
+  P, M, SUN, G0, LAUNCH_TH, bodyPos, bodyVel, bodyRot, atmo, soiBody, gravity, orbitInfo, predict, terrainH, surfH, wrapA, stepLimit,
 } from './physics.js';
 import { Vessel } from './vessel.js';
 import { isEngine } from './parts.js';
 import * as audio from './audio.js';
 import * as missions from './missions.js';
 
-export const WARPS = [1, 2, 3, 4, 10, 50, 100, 1000, 10000, 100000];
+export const WARPS = [1, 2, 3, 4, 10, 50, 100, 1000, 10000, 100000, 1000000];
 const PHYS_MAX = 3; // index of the highest physics warp (4x)
 
 const BP = {}, BV = {}, G = {};
@@ -14,9 +14,10 @@ const BP = {}, BV = {}, G = {};
 export class Flight {
   constructor(ids, hooks) {
     this.ids = ids.slice();
+    this.target = null; // body picked on the map
     this.hooks = hooks; // { toast, onEnd }
     this.t = 0; this.met = 0; this.launched = false;
-    this.vessel = Vessel.fromIds(ids);
+    this.vessel = Vessel.fromDesign(ids);
     this.vessel.landed = { body: P, lat: LAUNCH_TH, tilt: 0 };
     this.placeLanded(this.vessel);
     this.debris = []; this.particles = [];
@@ -26,11 +27,12 @@ export class Flight {
     this.sas = 'stab'; this.rotInput = 0; this.thrInput = 0;
     this.q = 0; this.heat = 0; this.gforce = 1; this.shake = 0;
     this.pred = null; this.predTimer = 0;
-    this.flags = { space: false, moonLanded: false };
+    this.flags = { space: false, moonLanded: false, farLanded: false };
     this.result = null; this.deathTimer = 0; this.boomPos = null;
     this.status = 'Ready on the pad';
     this.lastWarpMsg = 0;
     this.updateOrbit();
+    this.lastDom = this.domBody;
   }
 
   // ------------------------------------------------------------ helpers
@@ -95,12 +97,18 @@ export class Flight {
     } else if (st.type === 'decouple') {
       const deb = v.splitBottom();
       this.debris.push(deb);
-      for (const i of v.segs[v.segs.length - 1]) {
+      for (const i of v.stageIdx()) {
         const p = v.parts[i];
         if (isEngine(p.def)) p.ignited = true;
       }
       audio.clunk();
       this.sparks(deb.x, deb.y, v.vx, v.vy, 18);
+    } else if (st.type === 'boosters') {
+      const debs = v.dropBoosters();
+      this.debris.push(...debs);
+      for (const d of debs) this.sparks(d.x, d.y, v.vx, v.vy, 10);
+      audio.clunk();
+      if (this.launched && !v.landed) this.boostersDropped = true;
     } else if (st.type === 'chute') {
       this.deployChute(st.part);
     }
@@ -108,9 +116,9 @@ export class Flight {
   }
 
   deployChute(p) {
-    p = p || this.vessel.parts.find((q) => q.def.type === 'chute' && !q.chute && !q.chuteCut);
-    if (!p) { this.hooks.toast('No parachute ready'); return; }
-    p.chute = 1; p.chuteT = this.t;
+    const ready = this.vessel.parts.filter((q) => q.def.type === 'chute' && !q.chute && !q.chuteCut);
+    if (!ready.length) { this.hooks.toast('No parachute ready'); return; }
+    for (const q of ready) { q.chute = 1; q.chuteT = this.t; }
     audio.clunk();
   }
 
@@ -139,10 +147,19 @@ export class Flight {
         const d = this.dom; bodyPos(d, this.t, BP);
         const r = Math.hypot(v.x - BP.x, v.y - BP.y);
         h = Math.min(remaining, Math.max(0.02, 0.006 * Math.sqrt((r * r * r) / d.GM)));
+        h = Math.max(0.02, stepLimit(v.x, v.y, v.vx, v.vy, this.t, d, h));
       }
       this.step(h, rails);
       for (const d of this.debris) this.stepDebris(d, h);
       remaining -= h; steps++;
+      if (!v.dead && !v.landed) {
+        const nd = this.dom;
+        if (nd !== this.lastDom) { // crossed into another sphere of influence
+          this.hooks.toast(nd.parent === this.lastDom || nd !== this.lastDom.parent ? `Entering ${nd.name}'s sphere of influence` : `Leaving ${this.lastDom.name} — now orbiting ${nd.name}`);
+          this.lastDom = nd;
+          if (this.warpIdx > 5) { this.warpIdx = 5; break; }
+        }
+      }
     }
     this.debris = this.debris.filter((d) => !d.gone);
     if (this.launched && !v.dead) this.met += dtReal * warp;
@@ -153,7 +170,7 @@ export class Flight {
     this.predTimer -= dtReal;
     if (this.predTimer <= 0 && !v.dead) {
       this.predTimer = this.map ? 0.15 : 0.6;
-      this.pred = v.landed ? null : predict(v.x, v.y, v.vx, v.vy, this.t, this.map ? 3500 : 1500);
+      this.pred = v.landed ? null : predict(v.x, v.y, v.vx, v.vy, this.t, this.map ? 3500 : 1500, this.target);
     }
     this.checkMissions();
     if (v.dead && !this.result) {
@@ -188,7 +205,7 @@ export class Flight {
     const rx = v.x - BP.x, ry = v.y - BP.y;
     let vx = v.vx - BV.x, vy = v.vy - BV.y;
     const alt = Math.hypot(rx, ry) - dom.R;
-    const surface = dom.atmo ? alt < 36000 : alt < 8000;
+    const surface = dom.star ? false : dom.atmo ? alt < dom.atmo.height * 0.52 : alt < 8000;
     if (surface) { vx += dom.omega * ry; vy -= dom.omega * rx; }
     return { vx, vy, rx, ry, surface };
   }
@@ -217,7 +234,7 @@ export class Flight {
     const rx = v.x - BP.x, ry = v.y - BP.y, r = Math.hypot(rx, ry);
     const alt = r - dom.R;
     const at = atmo(dom, alt);
-    this.press = at.p;
+    this.press = Math.min(1, at.p);
     v.updateMass();
     const F = rails ? (v.thrust = 0, 0) : v.engineStep(h, at.p, v.throttle);
     v.updateMass();
@@ -247,7 +264,7 @@ export class Flight {
         if (q > 30000 && this.t - p.chuteT < 3) { p.chute = 0; p.chuteCut = true; this.hooks.toast('Parachute ripped — too fast!'); continue; }
         const open = Math.min(1, (this.t - p.chuteT) / 3) ** 2;
         chuteOpen = Math.max(chuteOpen, open);
-        const Fc = q * open * p.def.chuteCdA;
+        const Fc = q * open * p.def.chuteCdA * p.n;
         Fd += Fc;
         const dC = p.sTop - v.com;
         torque += dC * (ax * (-uy * Fc) - ay * (-ux * Fc));
@@ -284,7 +301,9 @@ export class Flight {
     gravity(v.x, v.y, this.t, G);
     v.vx += (G.ax + fax) * h * 0.5; v.vy += (G.ay + fay) * h * 0.5;
     this.gforce = Math.hypot(fx, fy) / m / G0;
-    if (alt < dom.maxTerrain + v.length + 60 + Math.hypot(v.vx, v.vy) * h * 2) this.checkGround(v, dom);
+    if (dom.star || dom.gas) {
+      if (alt < 0) this.crash(dom.star ? 'Burned up in Solara' : `Crushed deep inside ${dom.name} — gas giants have no ground`);
+    } else if (alt < dom.maxTerrain + v.length + 60 + Math.hypot(v.vx - BV.x, v.vy - BV.y) * h * 2) this.checkGround(v, dom);
   }
 
   stepLanded(h) {
@@ -292,7 +311,7 @@ export class Flight {
     bodyPos(b, this.t, BP);
     const r = Math.hypot(v.x - BP.x, v.y - BP.y);
     const at = atmo(b, r - b.R);
-    this.press = at.p; this.q = 0; this.heat = 0;
+    this.press = Math.min(1, at.p); this.q = 0; this.heat = 0;
     v.updateMass();
     const F = v.engineStep(h, at.p, v.throttle);
     v.updateMass();
@@ -300,7 +319,7 @@ export class Flight {
     const g = b.GM / (r * r);
     const upF = F * Math.cos(L.tilt);
     this.gforce = 1;
-    for (const p of v.parts) if (p.def.type === 'chute' && p.chute === 1 && L.body === P) { /* collapse on ground */ p.chute = 0; p.chuteCut = true; }
+    for (const p of v.parts) if (p.def.type === 'chute' && p.chute === 1) { /* collapse on ground */ p.chute = 0; p.chuteCut = true; }
     if (upF > v.mass * g * 1.001) {
       v.landed = null;
       this.liftoffT = this.t;
@@ -331,8 +350,8 @@ export class Flight {
       if (rc > dom.R + dom.maxTerrain + 10) continue;
       const la = Math.atan2(dy, dx) - rot;
       const raw = terrainH(dom, la);
-      const sh = dom === P ? Math.max(0, raw) : raw;
-      if (rc < dom.R + sh - 0.01) { hit = true; if (dom === P && raw < 0) water = true; }
+      const sh = dom.ocean ? Math.max(0, raw) : raw;
+      if (rc < dom.R + sh - 0.01) { hit = true; if (dom.ocean && raw < 0) water = true; }
     }
     if (!hit) return;
     const rx = v.x - BP.x, ry = v.y - BP.y, r = Math.hypot(rx, ry);
@@ -349,10 +368,11 @@ export class Flight {
     if (Math.abs(tilt) > 0.62) return this.crash(`Toppled over at ${Math.round(Math.abs(tilt) * 57.3)}° — land upright`);
     v.landed = { body: dom, lat: up - rot, tilt: tilt * 0.5, water };
     this.placeLanded(v);
-    this.status = water ? 'Splashed down' : dom === M ? 'Landed on Lumen' : 'Landed';
+    this.status = water ? 'Splashed down' : dom === P ? 'Landed' : `Landed on ${dom.name}`;
     this.hooks.toast(water ? '🌊 Splashdown!' : `🛬 Landed on ${dom.name} at ${speed.toFixed(1)} m/s`);
     audio.blip(520);
     if (dom === M) this.flags.moonLanded = true;
+    if (dom !== P && dom !== M) this.flags.farLanded = true;
   }
 
   crash(msg) {
@@ -426,7 +446,7 @@ export class Flight {
       const o = this.orbit;
       if (dom.atmo && o.alt < dom.atmo.height) this.status = 'Flying';
       else if (o.e >= 1) this.status = `Escaping ${dom.name}`;
-      else if (o.pe > (dom.atmo ? dom.atmo.height : 4000)) this.status = `Orbiting ${dom.name}`;
+      else if (o.pe > (dom.atmo ? dom.atmo.height : dom.star ? 0 : 4000)) this.status = `Orbiting ${dom.name}`;
       else this.status = 'Sub-orbital';
     }
   }
@@ -449,11 +469,17 @@ export class Flight {
     if (dom === M) { done('soi'); this.flags.space = true; }
     if (dom === M && o.e < 1 && o.pe > 4000 && o.ra < M.soi) done('moonorbit');
     if (v.landed && v.landed.body === M) { done('moonland'); this.flags.moonLanded = true; }
+    if (this.boostersDropped) done('boosters');
+    if (dom === SUN) { done('escape'); this.flags.space = true; }
+    if (dom !== SUN && dom !== P && dom !== M) { done('flyby'); this.flags.space = true; }
+    if (dom.gas && o.alt < dom.atmo.height) done('dive_' + dom.id);
+    if (v.landed && v.landed.body !== P && v.landed.body !== M) { done('land_' + v.landed.body.id); this.flags.farLanded = true; }
     if (v.landed && v.landed.body === P && this.flags.space) {
       done('return');
       if (this.flags.moonLanded) done('moonreturn');
+      if (this.flags.farLanded) done('hero');
       if (!this.result) {
-        this.result = { ok: true, msg: this.flags.moonLanded ? 'Welcome home from Lumen!' : 'Safe return from space!' };
+        this.result = { ok: true, msg: this.flags.farLanded ? 'Welcome home, interplanetary hero!' : this.flags.moonLanded ? 'Welcome home from Lumen!' : 'Safe return from space!' };
         setTimeout(() => this.hooks.onEnd(this.result), 1200);
       }
     }
@@ -474,9 +500,9 @@ export class Flight {
       for (const p of v.parts) {
         if (!p.flame || p.flame < 0.02) continue;
         const d = p.def;
-        v.worldPt(p.sTop - d.h, 0, w);
-        const n = Math.ceil(p.flame * 4 * warp * Math.min(2, d.w));
+        const n = Math.ceil(p.flame * 4 * warp * Math.min(2, d.w)) * p.n;
         for (let k = 0; k < n && ps.length < 1600; k++) {
+          v.worldPt(p.sTop - d.h, p.n === 2 ? (k % 2 ? p.lat : -p.lat) : 0, w);
           const spread = (Math.random() - 0.5) * (8 + (1 - press) * 40) * d.w;
           const ev = 70 + Math.random() * 50;
           ps.push({ kind: 'flame', x: w[0], y: w[1], vx: v.vx - ax * ev - ay * spread, vy: v.vy - ay * ev + ax * spread,

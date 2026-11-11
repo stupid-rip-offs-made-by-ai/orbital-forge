@@ -4,6 +4,7 @@ import { Flight, WARPS } from './flight.js';
 import { Renderer3D } from './render3d.js';
 import { fmtDist, drawAttitude } from './hud.js';
 import { PRESETS } from './parts.js';
+import { BODIES, SUN, bodyPos, transferInfo } from './physics.js';
 import { MISSIONS, isDone, doneCount, resetMissions } from './missions.js';
 import * as audio from './audio.js';
 
@@ -49,7 +50,7 @@ function renderMissionList(sel) {
   $(sel).innerHTML = MISSIONS.map((m) => `<li class="${isDone(m.id) ? 'done' : ''}"><span class="chk">${isDone(m.id) ? '✔' : '○'}</span><div><b>${m.name}</b><small>${m.desc}</small></div></li>`).join('');
 }
 $('#m-build').onclick = () => { audio.initAudio(); app.show('builder'); };
-$('#m-quick').onclick = () => app.launch(PRESETS['Orbiter Mk1'], 'Orbiter Mk1');
+$('#m-quick').onclick = () => app.launch(PRESETS['Booster Buddy'], 'Booster Buddy');
 $('#m-help').onclick = () => $('#help').classList.remove('hidden');
 $$('[data-close]').forEach((b) => (b.onclick = () => b.closest('.modal').classList.add('hidden')));
 $('#m-reset').onclick = (e) => {
@@ -70,6 +71,32 @@ function fmtTime(s) {
   const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
   const p = (n) => String(n).padStart(2, '0');
   return (d ? `${d}d ` : '') + `${p(h)}:${p(m)}:${p(sec)}`;
+}
+function fmtDur(s) {
+  if (s < 3600) return Math.max(1, Math.round(s / 60)) + ' min';
+  if (s < 86400) return (s / 3600).toFixed(1) + ' h';
+  return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
+}
+/** One line of guidance for reaching the chosen target. */
+function targetLine(f) {
+  const tg = f.target, v = f.vessel;
+  if (!tg) return 'Tap a planet or moon (or press TARGET) to plan a trip';
+  if (f.domBody === tg) return `🎯 ${tg.name} · you are here`;
+  let txt = `🎯 ${tg.name}`;
+  const en = f.pred && f.pred.encounters.find((e) => e.body === tg);
+  if (en) return `${txt} · ENCOUNTER · closest pass ${fmtDist(en.pe)} above the surface`;
+  if (!v.landed && !v.dead) {
+    const b = bodyPos(f.domBody, f.t);
+    const ti = transferInfo(f.orbit, f.domBody, tg, Math.atan2(v.y - b.y, v.x - b.x), f.t);
+    if (ti) {
+      txt += ti.now ? ' · WINDOW OPEN' : ` · window in ${fmtDur(ti.wait)}`;
+      if (ti.dv) txt += ` · burn prograde ≈ ${Math.round(ti.dv).toLocaleString()} m/s`;
+      if (tg.parent !== f.domBody && ti.dv) txt += ti.outward ? ' on the night side' : ' on the day side';
+      txt += ` · trip ${fmtDur(ti.travel)}`;
+    }
+    if (f.pred && f.pred.closest) txt += ` · closest ${fmtDist(f.pred.closest.d)}`;
+  }
+  return txt;
 }
 let hudTimer = 0;
 function updateHUD(dt) {
@@ -107,6 +134,11 @@ function updateHUD(dt) {
   $$('[data-sas]').forEach((b) => b.classList.toggle('on', b.dataset.sas === f.sas));
   $('#b-map').classList.toggle('on', f.map);
   $('#b-focus').classList.toggle('hidden', !f.map);
+  $('#b-target').classList.toggle('hidden', !f.map);
+  $('#b-target').classList.toggle('on', !!f.target);
+  const tl = $('#hud-target');
+  tl.classList.toggle('hidden', !f.map);
+  if (f.map) tl.textContent = targetLine(f);
 }
 
 function showResult(r) {
@@ -135,9 +167,26 @@ $('#b-warpu').onclick = () => app.flight && app.flight.warp(1);
 $('#b-map').onclick = () => app.flight && (app.flight.map = !app.flight.map);
 $('#b-focus').onclick = () => {
   const f = app.flight; if (!f) return;
-  const order = ['ship', 'verdan', 'lumen'];
-  f.mapFocus = order[(order.indexOf(f.mapFocus) + 1) % 3];
-  app.toast('Map focus: ' + { ship: 'Ship', verdan: 'Verdan', lumen: 'Lumen' }[f.mapFocus]);
+  // ship first, then the bodies that matter right now, then everything else
+  const order = ['ship'];
+  for (let b = f.domBody; b; b = b.parent) order.push(b.id);
+  if (f.target) order.push(f.target.id);
+  for (const b of BODIES) order.push(b.id);
+  const uniq = [...new Set(order)];
+  f.mapFocus = uniq[(uniq.indexOf(f.mapFocus) + 1) % uniq.length];
+  const fb = BODIES.find((b) => b.id === f.mapFocus);
+  if (fb) f.mapCam.dist = Math.max(f.mapCam.dist, fb.R * 4);
+  app.toast('Map focus: ' + (fb ? fb.name : 'Ship'));
+};
+function setTarget(b) {
+  const f = app.flight; if (!f) return;
+  f.target = b; f.predTimer = 0;
+  app.toast(b ? `Target: ${b.name}` : 'Target cleared');
+}
+$('#b-target').onclick = () => {
+  const f = app.flight; if (!f) return;
+  const list = [null, ...BODIES.filter((b) => b !== SUN)];
+  setTarget(list[(list.indexOf(f.target) + 1) % list.length]);
 };
 $('#b-chute').onclick = () => app.flight && app.flight.deployChute();
 $('#b-full').onclick = () => app.flight && (app.flight.vessel.throttle = 1);
@@ -176,7 +225,7 @@ $('#rs-continue').onclick = () => $('#result').classList.add('hidden');
 function zoom(k) {
   const f = app.flight; if (!f) return;
   const c = f.map ? f.mapCam : f.cam;
-  c.dist = f.map ? Math.max(9e5, Math.min(6e7, c.dist / k)) : Math.max(4, Math.min(3e5, c.dist / k));
+  c.dist = f.map ? Math.max(3e5, Math.min(4e11, c.dist / k)) : Math.max(4, Math.min(3e5, c.dist / k));
 }
 function resetView() {
   const f = app.flight; if (!f) return;
@@ -212,6 +261,17 @@ canvas.addEventListener('pointermove', (e) => {
   }
 });
 const endTouch = (e) => { touches.delete(e.pointerId); pinchD = 0; };
+// a tap (no drag) on the map picks a planet or moon as the target
+let tapStart = null;
+canvas.addEventListener('pointerdown', (e) => { tapStart = touches.size === 1 ? { x: e.clientX, y: e.clientY, t: performance.now() } : null; });
+canvas.addEventListener('pointerup', (e) => {
+  const f = app.flight;
+  if (!f || !f.map || !tapStart || !renderer) return;
+  if (Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y) > 8 || performance.now() - tapStart.t > 600) return;
+  const r = canvas.getBoundingClientRect();
+  const b = renderer.pickBody(e.clientX - r.left, e.clientY - r.top);
+  if (b && b !== SUN) setTarget(f.target === b ? null : b);
+});
 canvas.addEventListener('pointerup', endTouch);
 canvas.addEventListener('pointercancel', endTouch);
 

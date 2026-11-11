@@ -1,8 +1,7 @@
-// Three.js renderer. Physics happens in the planet's equatorial plane (z = 0);
+// Three.js renderer. Physics happens in the system's orbital plane (z = 0);
 // everything is drawn in full 3D around a floating origin centred on the camera target.
 import * as THREE from './vendor/three.min.js';
-import { P, M, LAUNCH_TH, PAD_H, bodyPos, bodyRot, terrain3, wrapA } from './physics.js';
-const padDip = (b, th, lat) => (b === P && Math.hypot(wrapA(th - LAUNCH_TH), lat) < 0.0025 ? 0.6 : 0);
+import { P, SUN, BODIES, LAUNCH_TH, PAD_H, bodyPos, bodyRot, terrain3, wrapA, soiBody } from './physics.js';
 import { buildRocket, updateRocket, rocketKey } from './rocketmesh.js';
 import { skyMaterial, atmoMaterial, particleMaterial } from './shaders.js';
 import { fmtDist } from './hud.js';
@@ -15,11 +14,14 @@ function tex(path, opts = {}) {
   t.anisotropy = 8;
   return t;
 }
-export const SUN = new THREE.Vector3(0.42, 1, 0.62).normalize();
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const V = new THREE.Vector3();
+const padDip = (b, th, lat) => (b === P && Math.hypot(wrapA(th - LAUNCH_TH), lat) < 0.0025 ? 0.6 : 0);
 
 const NT = 161, NP = 81; // terrain patch grid
+const GEO_LO = new THREE.SphereGeometry(1, 96, 48);
+let GEO_HI = null; // built the first time the camera gets close to a body
+const geoHi = () => GEO_HI || (GEO_HI = new THREE.SphereGeometry(1, 384, 192));
 
 export class Renderer3D {
   constructor(canvas, overlay) {
@@ -32,13 +34,12 @@ export class Renderer3D {
     r.toneMappingExposure = 1.1;
     r.setClearColor(0x000000);
     const scene = (this.scene = new THREE.Scene());
-    this.camera = new THREE.PerspectiveCamera(55, 1, 0.3, 5e10);
+    this.camera = new THREE.PerspectiveCamera(55, 1, 0.3, 5e12);
     scene.add(this.camera);
     this.fog = new THREE.FogExp2(0xa9d4ff, 0);
     scene.fog = this.fog;
 
     this.sun = new THREE.DirectionalLight(0xfff2dc, 3.2);
-    this.sun.position.copy(SUN);
     scene.add(this.sun, this.sun.target);
     this.hemi = new THREE.HemisphereLight(0xbfd8ff, 0x403424, 0.55);
     scene.add(this.hemi);
@@ -46,10 +47,11 @@ export class Renderer3D {
     scene.add(this.amb);
     this.engineLight = new THREE.PointLight(0xffa040, 0, 120, 1.2);
     scene.add(this.engineLight);
+    this.sunDir = new THREE.Vector3(0, 1, 0);
 
     const starTex = tex('stars.png', { repeat: [8, 4] });
     this.stars = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24),
-      new THREE.MeshBasicMaterial({ map: starTex, side: THREE.BackSide, depthWrite: false, fog: false, transparent: true }));
+      new THREE.MeshBasicMaterial({ map: starTex, side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false }));
     this.stars.scale.setScalar(4e9);
     this.stars.renderOrder = -10;
     this.stars.frustumCulled = false;
@@ -57,21 +59,21 @@ export class Renderer3D {
     this.sky.scale.setScalar(3e9);
     this.sky.renderOrder = -9;
     this.sky.frustumCulled = false;
-    this.sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex('flame.png'), color: 0xfff6e0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
-    this.sunSprite.scale.setScalar(2.2e8);
-    this.sunSprite.renderOrder = -8;
-    scene.add(this.stars, this.sky, this.sunSprite);
+    scene.add(this.stars, this.sky);
 
     this.detail = tex('ground_moon.png', { repeat: [1, 1] });
-    this.bodies = [this.makeBody(P), this.makeBody(M)];
+    this.bodies = BODIES.map((b) => this.makeBody(b));
+    this.byId = Object.fromEntries(this.bodies.map((B) => [B.b.id, B]));
+    for (const B of this.bodies) this.makeRings(B);
     this.makePad();
     this.makeParticles();
-    this.makeMapHelpers();
+    this.makeMapLine();
     this.makeChute();
     this.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex('flame.png'), color: 0xffb070, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
     this.glow.visible = false;
     scene.add(this.glow);
     this.vGroups = new Map();
+    this.bodyScreen = [];
     this.resize();
     addEventListener('resize', () => this.resize());
   }
@@ -79,7 +81,8 @@ export class Renderer3D {
   resize() {
     const w = this.canvas.clientWidth || innerWidth, h = this.canvas.clientHeight || innerHeight;
     this.W = w; this.H = h;
-    this.dpr = Math.min(2, window.devicePixelRatio || 1);
+    const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+    this.dpr = Math.min(coarse ? 1.5 : 2, window.devicePixelRatio || 1);
     this.r.setPixelRatio(this.dpr);
     this.r.setSize(w, h, false);
     this.overlay.width = Math.round(w * this.dpr);
@@ -92,37 +95,62 @@ export class Renderer3D {
   makeBody(b) {
     const root = new THREE.Group(), spin = new THREE.Group();
     root.add(spin);
-    const sphere = new THREE.Mesh(new THREE.SphereGeometry(b.R - (b === P ? 30 : 20), 384, 192),
-      new THREE.MeshStandardMaterial({ map: tex(b === P ? 'planet_map.jpg' : 'moon_map.jpg'), roughness: b === P ? 0.8 : 1, metalness: 0 }));
+    const margin = b.gas || b.star ? 0 : b.R * (1 - Math.cos(Math.PI / 384)) + 10;
+    const mat = b.star
+      ? new THREE.MeshBasicMaterial({ map: tex(b.tex), fog: false })
+      : new THREE.MeshStandardMaterial({ map: tex(b.tex), roughness: b.ocean ? 0.8 : 1, metalness: 0 });
+    const sphere = new THREE.Mesh(GEO_LO, mat);
     sphere.rotation.x = Math.PI / 2;
+    sphere.scale.setScalar(b.R - margin);
     spin.add(sphere);
-    const B = { b, root, spin, sphere };
-    if (b === P) {
+    const B = { b, root, spin, sphere, patch: null, water: null, pos: { x: 0, y: 0 } };
+    if (b.clouds) {
       B.cloudSpin = new THREE.Group();
-      const cm = new THREE.Mesh(new THREE.SphereGeometry(b.R + 4500, 192, 96),
-        new THREE.MeshStandardMaterial({ map: tex('clouds_map.png'), transparent: true, depthWrite: false, roughness: 1 }));
+      const cm = new THREE.Mesh(GEO_LO, new THREE.MeshStandardMaterial({ map: tex('clouds_map.png'), transparent: true, depthWrite: false, roughness: 1 }));
       cm.rotation.x = Math.PI / 2;
+      cm.scale.setScalar(b.R + 4500);
       B.cloudSpin.add(cm);
       B.clouds = cm;
       root.add(B.cloudSpin);
-      B.atmo = new THREE.Mesh(new THREE.SphereGeometry(b.R + 70000, 128, 64), atmoMaterial(0x5fa8ff));
+    }
+    if (b.atmo) {
+      B.atmo = new THREE.Mesh(GEO_LO, atmoMaterial(b.atmoColor));
+      B.atmo.scale.setScalar(b.R + b.atmo.height);
       root.add(B.atmo);
     }
-    B.patch = this.makePatch(new THREE.MeshStandardMaterial({ map: this.detail, vertexColors: true, roughness: 0.95, metalness: 0 }), true);
-    spin.add(B.patch.mesh);
-    if (b === P) {
-      B.water = this.makePatch(new THREE.MeshStandardMaterial({ color: 0x1b5c9e, roughness: 0.12, metalness: 0.05, transparent: true, opacity: 0.86 }), false);
-      spin.add(B.water.mesh);
+    if (b.star) {
+      B.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex('flame.png'), color: 0xfff0c8, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+      B.glow.renderOrder = -8;
+      root.add(B.glow);
     }
     this.scene.add(root);
     return B;
   }
 
+  /** Orbit path (drawn around the parent) and sphere-of-influence ring, both only shown on the map. */
+  makeRings(B) {
+    const b = B.b;
+    if (!b.parent) return;
+    const circle = (r, n, color, opacity) => {
+      const pos = new Float32Array((n + 1) * 3);
+      for (let i = 0; i <= n; i++) { const a = (i / n) * Math.PI * 2; pos[i * 3] = r * Math.cos(a); pos[i * 3 + 1] = r * Math.sin(a); }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity, fog: false, depthWrite: false }));
+      l.frustumCulled = false;
+      l.visible = false;
+      return l;
+    };
+    B.orbitRing = circle(b.orbitR, 2048, new THREE.Color(b.color), 0.45);
+    this.byId[b.parent.id].root.add(B.orbitRing);
+    B.soiRing = circle(b.soi, 256, 0xffb84f, 0.3);
+    B.root.add(B.soiRing);
+  }
+
   makePatch(mat, full) {
     const n = NT * NP;
     const g = new THREE.BufferGeometry();
-    const pos = new Float32Array(n * 3);
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
     if (full) {
       g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
       g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2), 2).setUsage(THREE.DynamicDrawUsage));
@@ -141,12 +169,23 @@ export class Renderer3D {
     return { mesh, g, state: null };
   }
 
+  ensurePatch(B) {
+    if (B.patch) return;
+    B.patch = this.makePatch(new THREE.MeshStandardMaterial({ map: this.detail, vertexColors: true, roughness: 0.95, metalness: 0 }), true);
+    B.spin.add(B.patch.mesh);
+    if (B.b.ocean) {
+      B.water = this.makePatch(new THREE.MeshStandardMaterial({ color: 0x1b5c9e, roughness: 0.12, metalness: 0.05, transparent: true, opacity: 0.86 }), false);
+      B.spin.add(B.water.mesh);
+    }
+  }
+
   rebuildPatch(B, thc, span) {
     const b = B.b, R = b.R;
     const tile = 40;
     thc = Math.round(thc / (tile / R)) * (tile / R);
     const ax = R * Math.cos(thc), ay = R * Math.sin(thc);
     const latSpan = Math.min(span * 0.7, 0.5);
+    const pal = b.pal, hMax = Math.max(1, b.maxTerrain);
     const doRow = (patch, water) => {
       const pos = patch.g.attributes.position.array;
       const col = !water && patch.g.attributes.color.array;
@@ -173,7 +212,10 @@ export class Renderer3D {
               else if (h < 1500) { const q = clamp(h / 1500, 0, 1); cr = 0.42 - 0.12 * q; cg = 0.72 - 0.2 * q; cb = 0.28 - 0.06 * q; }
               else if (h < 2700) { cr = 0.62; cg = 0.58; cb = 0.5; }
               else { cr = 1.6; cg = 1.62; cb = 1.7; }
-            } else { const q = 0.85 + 0.15 * Math.sin(th * 300 + lat * 410); cr = 1.18 * q; cg = 1.16 * q; cb = 1.1 * q; }
+            } else {
+              const q = clamp(h / hMax, 0, 1), n = 0.9 + 0.1 * Math.sin(th * 300 + lat * 410);
+              cr = (pal.lo[0] + (pal.hi[0] - pal.lo[0]) * q) * n; cg = (pal.lo[1] + (pal.hi[1] - pal.lo[1]) * q) * n; cb = (pal.lo[2] + (pal.hi[2] - pal.lo[2]) * q) * n;
+            }
             col[c++] = cr; col[c++] = cg; col[c++] = cb;
           }
         }
@@ -183,15 +225,13 @@ export class Renderer3D {
       if (!water) {
         // rocky slopes
         const nor = patch.g.attributes.normal.array;
+        const rk = b === P ? [0.55, 0.5, 0.45] : pal.rock;
         for (let q = 0, n = NT * NP; q < n; q++) {
           const px = pos[q * 3] + ax, py = pos[q * 3 + 1] + ay, pz = pos[q * 3 + 2];
           const L = Math.hypot(px, py, pz);
           const d = (nor[q * 3] * px + nor[q * 3 + 1] * py + nor[q * 3 + 2] * pz) / L;
           const s = clamp((0.93 - d) * 6, 0, 1);
-          if (s > 0) {
-            const rk = b === P ? [0.55, 0.5, 0.45] : [0.8, 0.78, 0.74];
-            col[q * 3] += (rk[0] - col[q * 3]) * s; col[q * 3 + 1] += (rk[1] - col[q * 3 + 1]) * s; col[q * 3 + 2] += (rk[2] - col[q * 3 + 2]) * s;
-          }
+          if (s > 0) { col[q * 3] += (rk[0] - col[q * 3]) * s; col[q * 3 + 1] += (rk[1] - col[q * 3 + 1]) * s; col[q * 3 + 2] += (rk[2] - col[q * 3 + 2]) * s; }
         }
         patch.g.attributes.color.needsUpdate = true;
         patch.g.attributes.uv.needsUpdate = true;
@@ -206,26 +246,26 @@ export class Renderer3D {
   makePad() {
     const pad = new THREE.Group();
     const concrete = new THREE.MeshStandardMaterial({ color: 0x8c8c90, roughness: 0.9 });
-    const slab = new THREE.Mesh(new THREE.BoxGeometry(22, 3, 22), concrete);
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(26, 3, 22), concrete);
     slab.position.y = -1.5;
     const trench = new THREE.Mesh(new THREE.BoxGeometry(5, 0.1, 22), new THREE.MeshStandardMaterial({ color: 0x2a2a2e, roughness: 1 }));
     trench.position.y = 0.01;
     const stripeMat = new THREE.MeshStandardMaterial({ color: 0xe6b828, roughness: 0.8 });
-    const s1 = new THREE.Mesh(new THREE.BoxGeometry(22, 0.06, 0.6), stripeMat); s1.position.set(0, 0.02, 10.4);
+    const s1 = new THREE.Mesh(new THREE.BoxGeometry(26, 0.06, 0.6), stripeMat); s1.position.set(0, 0.02, 10.4);
     const s2 = s1.clone(); s2.position.z = -10.4;
     const lat = tex('lattice.png', { repeat: [1, 1.6] });
     const towerMat = new THREE.MeshStandardMaterial({ map: lat, transparent: true, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.6 });
     const tower = new THREE.Mesh(new THREE.BoxGeometry(2.4, 28, 2.4), towerMat);
-    tower.position.set(-8.5, 14, 0);
+    tower.position.set(0, 14, -8.5);
     const armMat = new THREE.MeshStandardMaterial({ color: 0x9a9aa0, roughness: 0.5, metalness: 0.6 });
-    const arm1 = new THREE.Mesh(new THREE.BoxGeometry(6.5, 0.5, 0.8), armMat); arm1.position.set(-4.6, 9, 0);
+    const arm1 = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.5, 6.5), armMat); arm1.position.set(0, 9, -4.6);
     const arm2 = arm1.clone(); arm2.position.y = 18;
     const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 8), new THREE.MeshStandardMaterial({ color: 0xff3020, emissive: 0xff2010, emissiveIntensity: 2 }));
-    beacon.position.set(-8.5, 28.6, 0);
+    beacon.position.set(0, 28.6, -8.5);
     pad.add(slab, trench, s1, s2, tower, arm1, arm2, beacon);
     pad.position.set((P.R + PAD_H) * Math.cos(LAUNCH_TH), (P.R + PAD_H) * Math.sin(LAUNCH_TH), 0);
     pad.rotation.z = LAUNCH_TH - Math.PI / 2;
-    this.bodies[0].spin.add(pad);
+    this.byId[P.id].spin.add(pad);
     this.pad = pad;
   }
 
@@ -246,25 +286,16 @@ export class Renderer3D {
     this.fire = mk(tex('flame.png'), true);
   }
 
-  makeMapHelpers() {
-    const N = 4000;
+  makeMapLine() {
+    const N = 8000;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(N * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    this.orbitLine = new THREE.Line(g, new THREE.LineBasicMaterial({ vertexColors: true, fog: false }));
+    this.orbitLine = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, fog: false, depthTest: false }));
     this.orbitLine.frustumCulled = false;
+    this.orbitLine.renderOrder = 20;
+    this.orbitLineN = N;
     this.scene.add(this.orbitLine);
-    const circle = (r, color, opacity) => {
-      const pts = [];
-      for (let i = 0; i <= 256; i++) { const a = (i / 256) * Math.PI * 2; pts.push(new THREE.Vector3(r * Math.cos(a), r * Math.sin(a), 0)); }
-      const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color, transparent: true, opacity, fog: false }));
-      l.frustumCulled = false;
-      return l;
-    };
-    this.moonOrbit = circle(M.orbitR, 0xb8c0ff, 0.35);
-    this.bodies[0].root.add(this.moonOrbit);
-    this.soiRing = circle(M.soi, 0xffb84f, 0.35);
-    this.bodies[1].root.add(this.soiRing);
   }
 
   makeChute() {
@@ -288,18 +319,17 @@ export class Renderer3D {
   // ------------------------------------------------------------------ per-frame
   draw(f) {
     const v = f.vessel, t = f.t;
-    const mp = bodyPos(M, t);
+    for (const B of this.bodies) bodyPos(B.b, t, B.pos);
     const focusObj = v.dead && f.boomPos ? f.boomPos : v;
-    let F;
-    if (!f.map) F = { x: focusObj.x, y: focusObj.y };
-    else F = f.mapFocus === 'verdan' ? { x: 0, y: 0 } : f.mapFocus === 'lumen' ? { x: mp.x, y: mp.y } : { x: focusObj.x, y: focusObj.y };
+    let F = { x: focusObj.x, y: focusObj.y };
+    if (f.map && f.mapFocus !== 'ship' && this.byId[f.mapFocus]) F = { x: this.byId[f.mapFocus].pos.x, y: this.byId[f.mapFocus].pos.y };
     this.F = F;
 
     // camera
-    const domC = Math.hypot(focusObj.x - mp.x, focusObj.y - mp.y) < M.soi ? mp : { x: 0, y: 0 };
     let e1, e2;
     if (!f.map) {
-      const ux = focusObj.x - domC.x, uy = focusObj.y - domC.y, L = Math.hypot(ux, uy) || 1;
+      const dc = this.byId[soiBody(focusObj.x, focusObj.y, t).id].pos;
+      const ux = focusObj.x - dc.x, uy = focusObj.y - dc.y, L = Math.hypot(ux, uy) || 1;
       e2 = new THREE.Vector3(ux / L, uy / L, 0);
       e1 = new THREE.Vector3(uy / L, -ux / L, 0);
     } else { e1 = new THREE.Vector3(1, 0, 0); e2 = new THREE.Vector3(0, 1, 0); }
@@ -318,52 +348,69 @@ export class Renderer3D {
     cam.updateProjectionMatrix();
     const camW = { x: F.x + cam.position.x, y: F.y + cam.position.y, z: cam.position.z };
 
-    // sky & atmosphere
-    const camR = Math.hypot(camW.x, camW.y, camW.z);
-    const camAlt = camR - P.R;
-    const upP = V.set(camW.x / camR, camW.y / camR, camW.z / camR).clone();
-    const dayF = clamp(upP.dot(SUN) * 2.5 + 0.55, 0.12, 1);
-    const inMoon = Math.hypot(camW.x - mp.x, camW.y - mp.y, camW.z) < M.soi;
-    let skyF = inMoon || camAlt > P.atmo.height ? 0 : clamp(Math.exp(-camAlt / 14000) * 1.08, 0, 1);
-    skyF *= dayF;
+    // sunlight comes from Solara (tilted a little out of the plane so shapes read well)
+    const sunP = this.byId[SUN.id].pos;
+    const sd = this.sunDir.set(sunP.x - camW.x, sunP.y - camW.y, -camW.z);
+    const sunDist = sd.length();
+    sd.divideScalar(sunDist || 1);
+    this.sun.position.set(sd.x, sd.y, sd.z + 0.35).normalize();
+
+    // sky & atmosphere of whatever body the camera is at
+    const cb = soiBody(camW.x, camW.y, t), cB = this.byId[cb.id];
+    const cdx = camW.x - cB.pos.x, cdy = camW.y - cB.pos.y;
+    const camR = Math.hypot(cdx, cdy, camW.z) || 1;
+    const camAlt = camR - cb.R;
+    const up = V.set(cdx / camR, cdy / camR, camW.z / camR).clone();
+    const dayF = clamp(up.dot(sd) * 2.5 + 0.55, 0.14, 1);
+    let skyF = 0;
+    const sk = cb.sky || P.sky;
+    if (cb.atmo && camAlt < cb.atmo.height) skyF = clamp(Math.exp(-Math.max(0, camAlt) / (cb.atmo.H * 2.5)) * 1.08, 0, 1) * dayF;
     const su = this.sky.material.uniforms;
-    su.uUp.value.copy(upP); su.uSun.value.copy(SUN); su.uSkyF.value = skyF;
-    su.uZenith.value.setRGB(0.17 * dayF, 0.42 * dayF, 0.85 * dayF);
-    su.uHorizon.value.setRGB(0.66 * dayF, 0.82 * dayF, 1.0 * dayF);
+    su.uUp.value.copy(up); su.uSun.value.copy(sd); su.uSkyF.value = skyF;
+    su.uZenith.value.setRGB(sk.zen[0] * dayF, sk.zen[1] * dayF, sk.zen[2] * dayF);
+    su.uHorizon.value.setRGB(sk.hor[0] * dayF, sk.hor[1] * dayF, sk.hor[2] * dayF);
     this.sky.visible = skyF > 0.005;
-    this.stars.material.opacity = clamp(1 - skyF * 1.8, 0, 1);
+    this.stars.material.color.setScalar(clamp(1 - skyF * 1.8, 0, 1));
     this.sky.position.copy(cam.position);
     this.stars.position.copy(cam.position);
-    this.sunSprite.position.copy(cam.position).addScaledVector(SUN, 2e9);
-    this.fog.density = f.map ? 0 : skyF > 0 ? (skyF * 1) / (55000 + Math.max(0, camAlt) * 5) : 0;
-    this.fog.color.setRGB(0.62 * dayF, 0.78 * dayF, 0.95 * dayF);
+    const thick = cb.atmo ? clamp(Math.sqrt(cb.atmo.rho0 / 1.225), 0.6, 2.5) : 1;
+    this.fog.density = f.map || skyF <= 0 ? 0 : (skyF * thick) / (cb.atmo.H * 10 + Math.max(0, camAlt) * 5);
+    this.fog.color.setRGB(sk.hor[0] * 0.94 * dayF, sk.hor[1] * 0.95 * dayF, sk.hor[2] * 0.95 * dayF);
     this.hemi.intensity = 0.25 + 0.45 * skyF;
+    this.amb.intensity = 1.5 + 2.4 * (1 - clamp(up.dot(sd) * 2.5 + 0.55, 0, 1)); // extra fill light on the night side so you can still see to land
 
     // bodies
     for (const B of this.bodies) {
-      const b = B.b;
-      const bp = b === P ? { x: 0, y: 0 } : mp;
+      const b = B.b, bp = B.pos;
       B.root.position.set(bp.x - F.x, bp.y - F.y, 0);
       const rot = bodyRot(b, t);
       B.spin.rotation.z = rot;
-      if (B.cloudSpin) {
+      const dx = camW.x - bp.x, dy = camW.y - bp.y;
+      const dist = Math.hypot(dx, dy, camW.z), alt = dist - b.R;
+      const near = dist < b.R * 6;
+      const want = near ? geoHi() : GEO_LO;
+      if (B.sphere.geometry !== want) B.sphere.geometry = want;
+      if (B.clouds) {
         B.cloudSpin.rotation.z = rot * 1.08;
-        const ca = clamp((camAlt - 3000) / 6000, 0, 1);
+        const ca = clamp((alt - 3000) / 6000, 0, 1);
         B.clouds.material.opacity = ca;
         B.clouds.visible = ca > 0.01;
-        B.atmo.material.uniforms.uFade.value = clamp((camAlt - 25000) / 45000, 0, 1);
       }
+      if (B.atmo) B.atmo.material.uniforms.uFade.value = clamp((alt - b.atmo.height * 0.35) / (b.atmo.height * 0.65), 0, 1);
+      if (B.glow) B.glow.scale.setScalar(Math.max(b.R * 5, dist * 0.09));
+      if (B.orbitRing) { B.orbitRing.visible = f.map; B.soiRing.visible = f.map; }
       // terrain patch near the camera
-      const dx = camW.x - bp.x, dy = camW.y - bp.y;
-      const alt = Math.hypot(dx, dy, camW.z) - b.R;
-      const showPatch = !f.map && alt < 300000;
-      B.patch.mesh.visible = showPatch;
-      if (B.water) B.water.mesh.visible = showPatch;
-      if (showPatch) {
-        const fth = Math.atan2(F.y - bp.y, F.x - bp.x) - rot;
-        const span = clamp((Math.sqrt(2 * b.R * Math.max(alt, 40)) * 1.3 + 3000) / b.R, 0.004, 0.9);
-        const st = B.patch.state;
-        if (!st || Math.abs(wrapA(fth - st.thc)) > st.span * 0.1 || span / st.span > 1.4 || span / st.span < 0.6) this.rebuildPatch(B, fth, span);
+      const showPatch = !f.map && !b.gas && !b.star && alt < Math.min(b.R * 0.5, 220000);
+      if (showPatch) this.ensurePatch(B);
+      if (B.patch) {
+        B.patch.mesh.visible = showPatch;
+        if (B.water) B.water.mesh.visible = showPatch;
+        if (showPatch) {
+          const fth = Math.atan2(F.y - bp.y, F.x - bp.x) - rot;
+          const span = clamp((Math.sqrt(2 * b.R * Math.max(alt, 40)) * 1.3 + 3000) / b.R, 0.004, 0.9);
+          const st = B.patch.state;
+          if (!st || Math.abs(wrapA(fth - st.thc)) > st.span * 0.1 || span / st.span > 1.4 || span / st.span < 0.6) this.rebuildPatch(B, fth, span);
+        }
       }
     }
     this.pad.visible = !f.map;
@@ -391,7 +438,7 @@ export class Renderer3D {
 
     // engine glow light
     let fl = 0;
-    for (const p of v.parts) fl += p.flame || 0;
+    for (const p of v.parts) fl += (p.flame || 0) * p.n;
     if (!v.dead && fl > 0) {
       const [bx, by] = v.worldPt(v.minS - 2, 0);
       this.engineLight.position.set(bx - F.x, by - F.y, 0);
@@ -401,15 +448,15 @@ export class Renderer3D {
     this.updateChute(f, F);
     this.updateParticles(f, F, cam);
     this.updateGlow(f, F);
-    this.updateMap(f, F, mp);
+    this.updateMap(f, F);
 
     this.r.render(this.scene, cam);
-    this.drawOverlay(f, F, mp);
+    this.drawOverlay(f);
   }
 
   disposeGroup(g) {
     this.scene.remove(g);
-    g.traverse((o) => { if (o.material && !o.material.isShaderMaterial && o.material.map) o.material.dispose(); });
+    g.traverse((o) => { if (o.material && !o.material.isShaderMaterial && o.material.map && o.material.map.isCanvasTexture !== true) o.material.dispose(); });
   }
 
   updateChute(f, F) {
@@ -418,12 +465,13 @@ export class Renderer3D {
     this.canopy.visible = this.chuteLines.visible = !!p;
     if (!p) return;
     const open = Math.min(1, (f.t - p.chuteT) / 3);
-    const top = v.worldPt(p.sTop, 0);
+    const top = v.worldPt(v.maxS, 0);
     const r = f.speedRef || { vx: 0, vy: -1 };
     let dx = -r.vx, dy = -r.vy;
     const L = Math.hypot(dx, dy);
     if (L < 0.5) { dx = Math.cos(v.angle); dy = Math.sin(v.angle); } else { dx /= L; dy /= L; }
-    const dist = 3 + 9 * open, rad = 1 + 6.5 * open;
+    const many = v.parts.filter((q) => q.def.type === 'chute' && q.chute === 1).reduce((a, q) => a + q.n, 0);
+    const dist = 3 + 9 * open, rad = (1 + 6.5 * open) * (many > 1 ? 1.35 : 1);
     const dir = new THREE.Vector3(dx, dy, 0);
     const cx = top[0] - F.x + dx * dist, cy = top[1] - F.y + dy * dist;
     this.canopy.position.set(cx, cy, 0);
@@ -490,22 +538,27 @@ export class Renderer3D {
     this.glow.material.opacity = Math.min(1, f.heat * 1.4);
   }
 
-  updateMap(f, F, mp) {
-    const show = f.map;
-    this.orbitLine.visible = show && !!f.pred;
-    this.moonOrbit.visible = this.soiRing.visible = show;
-    if (!show || !f.pred) return;
+  /** Predicted path. Each point is relative to the body it is near, so it is drawn around that body. */
+  updateMap(f, F) {
+    const show = f.map && !!f.pred;
+    this.orbitLine.visible = show;
+    if (!show) return;
     const pts = f.pred.pts;
     const pos = this.orbitLine.geometry.attributes.position.array;
     const col = this.orbitLine.geometry.attributes.color.array;
-    const n = Math.min(pts.length, 4000);
-    for (let i = 0; i < n; i++) {
-      const q = pts[i];
-      const x = q.moon ? mp.x + q.x : q.x, y = q.moon ? mp.y + q.y : q.y;
-      pos[i * 3] = x - F.x; pos[i * 3 + 1] = y - F.y; pos[i * 3 + 2] = 0;
-      if (q.moon) { col[i * 3] = 1; col[i * 3 + 1] = 0.72; col[i * 3 + 2] = 0.31; } else { col[i * 3] = 0.31; col[i * 3 + 1] = 0.82; col[i * 3 + 2] = 1; }
+    const dom = f.domBody;
+    let k = 0;
+    const put = (q) => {
+      const bp = this.byId[q.b.id].pos;
+      pos[k * 3] = bp.x + q.x - F.x; pos[k * 3 + 1] = bp.y + q.y - F.y; pos[k * 3 + 2] = 0;
+      if (q.b === dom) { col[k * 3] = 0.31; col[k * 3 + 1] = 0.82; col[k * 3 + 2] = 1; } else { col[k * 3] = 1; col[k * 3 + 1] = 0.72; col[k * 3 + 2] = 0.31; }
+      k++;
+    };
+    for (let i = 1; i < pts.length && k < this.orbitLineN - 2; i++) {
+      if (pts[i].b !== pts[i - 1].b) continue; // no line across a change of reference body
+      put(pts[i - 1]); put(pts[i]);
     }
-    this.orbitLine.geometry.setDrawRange(0, n);
+    this.orbitLine.geometry.setDrawRange(0, k);
     this.orbitLine.geometry.attributes.position.needsUpdate = true;
     this.orbitLine.geometry.attributes.color.needsUpdate = true;
   }
@@ -529,34 +582,70 @@ export class Renderer3D {
     ctx.fillText(text, x + 11, y - 3);
   }
 
-  drawOverlay(f, F, mp) {
+  /** Nearest body marker to a screen point (map view), for tap-to-target. */
+  pickBody(x, y) {
+    let best = null, bd = 34;
+    for (const s of this.bodyScreen) { const d = Math.hypot(s.x - x, s.y - y) - s.r; if (d < bd) { bd = d; best = s.b; } }
+    return best;
+  }
+
+  drawOverlay(f) {
     const ctx = this.octx;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, this.W, this.H);
+    this.bodyScreen = [];
     if (!f.map) return;
     const v = f.vessel;
-    this.label(this.project(0, P.R * 1.05), 'Verdan', '#9fd0ff', false);
-    this.label(this.project(mp.x, mp.y + M.R * 1.1), 'Lumen', '#e8e3d0', false);
+    const pxPerM = this.H / (2 * Math.tan((this.camera.fov * Math.PI) / 360) * f.mapCam.dist);
+    const scr = {};
+    for (const B of this.bodies) {
+      const b = B.b, p = this.project(B.pos.x, B.pos.y);
+      if (!p) continue;
+      const rpx = b.R * pxPerM;
+      scr[b.id] = p;
+      const pp = b.parent && scr[b.parent.id];
+      if (pp && b.parent !== SUN && Math.hypot(p[0] - pp[0], p[1] - pp[1]) < 22) continue; // moon hidden inside its planet's marker
+      if (rpx < 3) { ctx.fillStyle = b.color; ctx.beginPath(); ctx.arc(p[0], p[1], 3.2, 0, Math.PI * 2); ctx.fill(); }
+      const off = Math.max(5, rpx * 0.72);
+      this.label([p[0] + off, p[1] - off], b.name, b.color, false);
+      this.bodyScreen.push({ b, x: p[0], y: p[1], r: Math.max(0, rpx) });
+      if (f.target === b) {
+        const rr = Math.max(10, rpx + 6);
+        ctx.strokeStyle = '#ff5fd2'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+        ctx.beginPath(); ctx.arc(p[0], p[1], rr, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      }
+    }
     if (v.dead) return;
-    const o = f.orbit, dom = f.domBody;
-    const bp = dom === P ? { x: 0, y: 0 } : mp;
+    const o = f.orbit, dom = f.domBody, bp = this.byId[dom.id].pos;
     if (!v.landed && o) {
       const e = o.e, ex = e > 1e-5 ? o.ex / e : 1, ey = e > 1e-5 ? o.ey / e : 0;
       if (o.rp > 0) this.label(this.project(bp.x + ex * o.rp, bp.y + ey * o.rp), `Pe ${fmtDist(o.pe)}`, '#7dff9a');
-      if (e < 1 && e > 1e-4) this.label(this.project(bp.x - ex * o.ra, bp.y - ey * o.ra), `Ap ${fmtDist(o.ap)}`, '#ffd166');
+      if (e < 1 && e > 1e-4 && o.ra < dom.soi) this.label(this.project(bp.x - ex * o.ra, bp.y - ey * o.ra), `Ap ${fmtDist(o.ap)}`, '#ffd166');
     }
     const pr = f.pred;
-    if (pr && pr.encounter && dom === P) this.label(this.project(mp.x + pr.encounter.x, mp.y + pr.encounter.y), `Lumen Pe ${fmtDist(pr.encounter.pe)}`, '#ffb84f');
-    if (pr && pr.impact) {
-      const q = pr.impact;
-      const p = q.moon ? this.project(mp.x + q.x, mp.y + q.y) : this.project(q.x, q.y);
-      if (p) {
-        ctx.strokeStyle = '#ff5d5d'; ctx.lineWidth = 2.5;
-        ctx.beginPath(); ctx.moveTo(p[0] - 6, p[1] - 6); ctx.lineTo(p[0] + 6, p[1] + 6); ctx.moveTo(p[0] + 6, p[1] - 6); ctx.lineTo(p[0] - 6, p[1] + 6); ctx.stroke();
-        this.label(p, 'Impact', '#ff5d5d', false);
+    if (pr) {
+      for (const en of pr.encounters) {
+        const q = this.byId[en.body.id].pos;
+        this.label(this.project(q.x + en.x, q.y + en.y), `${en.body.name} Pe ${fmtDist(en.pe)}`, '#ffb84f');
+      }
+      if (pr.closest && f.target && !pr.encounters.some((en) => en.body === f.target)) {
+        const q = this.byId[pr.closest.b.id].pos;
+        const a = this.project(q.x + pr.closest.x, q.y + pr.closest.y), g = this.project(q.x + pr.closest.tx, q.y + pr.closest.ty);
+        this.label(a, `Closest to ${f.target.name}: ${fmtDist(pr.closest.d)}`, '#ff5fd2');
+        if (g) { ctx.strokeStyle = '#ff5fd2'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(g[0], g[1], 6, 0, Math.PI * 2); ctx.stroke(); }
+        if (a && g) { ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(g[0], g[1]); ctx.stroke(); ctx.setLineDash([]); }
+      }
+      if (pr.impact) {
+        const q = this.byId[pr.impact.b.id].pos;
+        const p = this.project(q.x + pr.impact.x, q.y + pr.impact.y);
+        if (p) {
+          ctx.strokeStyle = '#ff5d5d'; ctx.lineWidth = 2.5;
+          ctx.beginPath(); ctx.moveTo(p[0] - 6, p[1] - 6); ctx.lineTo(p[0] + 6, p[1] + 6); ctx.moveTo(p[0] + 6, p[1] - 6); ctx.lineTo(p[0] - 6, p[1] + 6); ctx.stroke();
+          this.label(p, 'Impact', '#ff5d5d', false);
+        }
       }
     }
-    const s = this.project(v.x, v.y), s2 = this.project(v.x + Math.cos(v.angle) * 1e3, v.y + Math.sin(v.angle) * 1e3);
+    const s = this.project(v.x, v.y), s2 = this.project(v.x + Math.cos(v.angle) * f.mapCam.dist * 0.01, v.y + Math.sin(v.angle) * f.mapCam.dist * 0.01);
     if (s) {
       const ang = s2 ? Math.atan2(s2[1] - s[1], s2[0] - s[0]) + Math.PI / 2 : 0;
       ctx.save();

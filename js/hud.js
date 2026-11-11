@@ -1,11 +1,12 @@
-import { P, M, bodyPos } from './physics.js';
+import { bodyPos } from './physics.js';
 
 export function fmtDist(m) {
   if (!isFinite(m)) return '∞';
   const a = Math.abs(m);
   if (a < 10000) return `${Math.round(m).toLocaleString()} m`;
   if (a < 1e7) return `${(m / 1000).toFixed(1)} km`;
-  return `${(m / 1e6).toFixed(2)} Mm`;
+  if (a < 1e9) return `${(m / 1e6).toFixed(2)} Mm`;
+  return `${(m / 1e9).toFixed(2)} Gm`;
 }
 
 export function drawAttitude(f) {
@@ -16,7 +17,7 @@ export function drawAttitude(f) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, cv.width, cv.height);
   const dom = f.domBody;
-  const bp = dom === P ? { x: 0, y: 0 } : bodyPos(M, f.t);
+  const bp = bodyPos(dom, f.t);
   const up = Math.atan2(v.y - bp.y, v.x - bp.x);
   const tilt = v.angle - up;
   ctx.translate(cv.width / 2, cv.height / 2);

@@ -31,9 +31,15 @@ export const PROFILES = {
   eng_void: eng(0.24, 0.5, 0.26, 0.12, 0.61, 0.55),
   eng_titan: eng(0.3, 1.24, 0.74, 0.38, 1.17),
   legs: () => 0.64,
+  legs_l: () => 1.27,
   fins: () => 0.625,
+  pod_3: (t) => (t < 0.05 ? 0.5 : 0.58 + ((1.25 - 0.58) * (t - 0.05)) / 0.95),
+  nose_l: (t) => 1.25 * Math.sqrt(Math.max(0, 1 - (1 - t) ** 2)),
+  srb_thor: (t) => (t < 0.93 ? (t < 0.035 ? 0.48 + (0.12 * t) / 0.035 : 0.6) : 0.3 + (0.24 * (t - 0.93)) / 0.07),
+  eng_spark: eng(0.32, 0.6, 0.3, 0.16, 0.5),
+  eng_nova: eng(0.6, 0.5, 0.42, 0.14, 0.55),
 };
-const HOUSING = { eng_ember: 0.35, eng_pivot: 0.36, eng_void: 0.24, eng_titan: 0.3 };
+const HOUSING = { eng_ember: 0.35, eng_pivot: 0.36, eng_void: 0.24, eng_titan: 0.3, eng_spark: 0.32, eng_nova: 0.6 };
 
 const geoCache = {};
 function latheGeo(def) {
@@ -74,8 +80,52 @@ function strut(a, b, r, mat) {
   return m;
 }
 
-function partMesh(p) {
+const wingletGeo = (() => {
+  const s = new THREE.Shape();
+  s.moveTo(-0.5, 0); s.lineTo(0.5, -0.86); s.lineTo(0.5, -1.3); s.lineTo(-0.5, -1.3); s.closePath();
+  const g = new THREE.ExtrudeGeometry(s, { depth: 0.06, bevelEnabled: false });
+  g.translate(0, 0, -0.03);
+  return g;
+})();
+let solarTex = null;
+function solarMat() {
+  if (!solarTex) {
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 96;
+    const x = c.getContext('2d');
+    x.fillStyle = '#16327a'; x.fillRect(0, 0, 256, 96);
+    x.strokeStyle = '#6f9be6'; x.lineWidth = 2;
+    for (let i = 0; i <= 8; i++) { x.beginPath(); x.moveTo(i * 32, 0); x.lineTo(i * 32, 96); x.stroke(); }
+    for (let j = 0; j <= 3; j++) { x.beginPath(); x.moveTo(0, j * 32); x.lineTo(256, j * 32); x.stroke(); }
+    solarTex = new THREE.CanvasTexture(c);
+    solarTex.colorSpace = THREE.SRGBColorSpace;
+  }
+  return new THREE.MeshStandardMaterial({ map: solarTex, roughness: 0.25, metalness: 0.6, side: THREE.DoubleSide });
+}
+const chuteBoxMat = new THREE.MeshStandardMaterial({ color: 0xd64a2a, roughness: 0.6 });
+
+/** Parts that only exist as side mounts. `sg` is +1 or -1 for the two sides. */
+function sideOnlyMesh(d, sg) {
+  const g = new THREE.Group();
+  if (d.id === 'winglet') g.add(new THREE.Mesh(wingletGeo, finMat));
+  else if (d.id === 'solar') {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.08), legMat);
+    arm.position.set(-d.w / 2 + 0.15, -d.h / 2, 0);
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(d.w - 0.25, d.h, 0.03), solarMat());
+    panel.position.set(0.125, -d.h / 2, 0);
+    g.add(arm, panel);
+  } else {
+    const box = new THREE.Mesh(new THREE.BoxGeometry(d.w, d.h, 0.34), chuteBoxMat);
+    box.position.y = -d.h / 2;
+    g.add(box);
+  }
+  if (sg < 0) g.rotation.y = Math.PI;
+  return g;
+}
+
+function partMesh(p, sg = 1) {
   const d = p.def;
+  if (d.sideOnly) return sideOnlyMesh(d, sg);
   const g = new THREE.Group();
   const isEng = d.type === 'engine';
   const mat = new THREE.MeshStandardMaterial({
@@ -116,6 +166,8 @@ function partMesh(p) {
       st.rotation.y = -a;
       stow.add(st);
     }
+    const k = d.legScale || 1;
+    out.scale.setScalar(k); stow.scale.setScalar(k);
     out.visible = !!p.legsOut;
     stow.visible = !p.legsOut;
     g.userData.legs = { out, stow };
@@ -132,8 +184,8 @@ const plumeGeo = (() => {
 })();
 function makePlume(def) {
   const grp = new THREE.Group();
-  const outer = new THREE.Mesh(plumeGeo, plumeMaterial(0xff8a30, 0xffd27a, 0.9));
-  const inner = new THREE.Mesh(plumeGeo, plumeMaterial(0xffc070, 0xffffff, 1.0));
+  const outer = new THREE.Mesh(plumeGeo, def.hot ? plumeMaterial(0x4a8cff, 0xbfe0ff, 0.9) : plumeMaterial(0xff8a30, 0xffd27a, 0.9));
+  const inner = new THREE.Mesh(plumeGeo, plumeMaterial(def.hot ? 0xa8d0ff : 0xffc070, 0xffffff, 1.0));
   inner.scale.set(0.5, 0.6, 0.5);
   outer.renderOrder = 5; inner.renderOrder = 6;
   grp.add(outer, inner);
@@ -152,21 +204,23 @@ export function buildRocket(parts) {
   root.add(inner);
   const plumes = [], legs = [];
   for (const p of parts) {
-    const g = partMesh(p);
-    g.position.y = p.sTop;
-    inner.add(g);
-    if (g.userData.legs) legs.push({ p, ...g.userData.legs });
-    if (isEngine(p.def)) {
-      const pl = makePlume(p.def);
-      pl.position.y = p.sTop - p.def.h + 0.05;
-      inner.add(pl);
-      plumes.push({ p, grp: pl });
+    for (const sg of p.n === 2 ? [1, -1] : [1]) {
+      const g = partMesh(p, sg);
+      g.position.set(sg * (p.lat || 0), p.sTop, 0);
+      inner.add(g);
+      if (g.userData.legs) legs.push({ p, ...g.userData.legs });
+      if (isEngine(p.def)) {
+        const pl = makePlume(p.def);
+        pl.position.set(sg * (p.lat || 0), p.sTop - p.def.h + 0.05, 0);
+        inner.add(pl);
+        plumes.push({ p, grp: pl });
+      }
     }
   }
   root.userData = { inner, plumes, legs, key: rocketKey(parts) };
   return root;
 }
-export const rocketKey = (parts) => parts.map((p) => p.id + (p.legsOut ? '+' : '')).join(',');
+export const rocketKey = (parts) => parts.map((p) => p.id + (p.legsOut ? '+' : '') + (p.n === 2 ? '@' + p.sTop.toFixed(1) + '/' + p.lat.toFixed(2) : '')).join(',');
 
 /** Per-frame update of plumes/legs. press: 0 (vacuum) .. 1 (sea level). */
 export function updateRocket(root, vessel, press, time) {
@@ -177,7 +231,7 @@ export function updateRocket(root, vessel, press, time) {
     const fl = p.flame || 0;
     grp.visible = fl > 0.02;
     if (!grp.visible) continue;
-    const d = p.def, vac = 1 - press;
+    const d = p.def, vac = 1 - Math.min(1, press);
     const flick = 0.93 + 0.14 * Math.sin(time * 53 + d.thrust * 1e-3) * Math.sin(time * 31);
     const len = d.plume * (0.55 + 0.45 * fl) * (1 + vac * 1.4) * flick;
     const wid = d.w * 0.48 * (1 + vac * 1.8);
