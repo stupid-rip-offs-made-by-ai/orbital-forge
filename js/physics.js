@@ -11,7 +11,7 @@ export const SUN = {
 /** Verdan — the home planet. */
 export const P = {
   id: 'verdan', name: 'Verdan', parent: SUN, GM: 3.5316e12, R: 600000,
-  orbitR: 1.36e10, phase0: -Math.PI / 2, soi: 8.42e7,
+  orbitR: 6.8e9, phase0: -Math.PI / 2,
   atmo: { height: 70000, rho0: 1.225, H: 5600 }, rotPeriod: 21600, ocean: true, clouds: true,
   maxTerrain: 4200, color: '#5aa0ff', tex: 'planet_map.jpg', atmoColor: 0x5fa8ff,
   sky: { zen: [0.17, 0.42, 0.85], hor: [0.66, 0.82, 1.0] },
@@ -19,46 +19,46 @@ export const P = {
 };
 /** Lumen — Verdan's moon. */
 export const M = {
-  id: 'lumen', name: 'Lumen', parent: P, GM: 6.5138e10, R: 200000, orbitR: 1.2e7, phase0: 1.2, soi: 2.43e6,
+  id: 'lumen', name: 'Lumen', parent: P, GM: 6.5138e10, R: 200000, orbitR: 6e6, phase0: 1.2,
   locked: true, maxTerrain: 4700, color: '#d8d4c8', tex: 'moon_map.jpg',
   pal: { lo: [0.95, 0.94, 0.9], hi: [1.2, 1.18, 1.12], rock: [0.8, 0.78, 0.74] },
   desc: 'Airless grey moon. Land on engines alone.',
 };
 export const CINDER = {
-  id: 'cinder', name: 'Cinder', parent: SUN, GM: 1.7e11, R: 250000, orbitR: 5.6e9, phase0: 2.1,
+  id: 'cinder', name: 'Cinder', parent: SUN, GM: 1.7e11, R: 250000, orbitR: 2.8e9, phase0: 2.1,
   rotPeriod: 120000, color: '#b08a6a', tex: 'cinder_map.jpg',
   pal: { lo: [0.5, 0.4, 0.33], hi: [0.82, 0.7, 0.58], rock: [0.42, 0.34, 0.3] },
   terr: [41, 1500], desc: 'Scorched rock close to the star. Expensive to reach.',
 };
 export const AUREA = {
-  id: 'aurea', name: 'Aurea', parent: SUN, GM: 8.17e12, R: 700000, orbitR: 9.8e9, phase0: 0.4,
+  id: 'aurea', name: 'Aurea', parent: SUN, GM: 8.17e12, R: 700000, orbitR: 4.9e9, phase0: 0.4,
   atmo: { height: 90000, rho0: 6.0, H: 7200 }, rotPeriod: 80000, color: '#f0c060', tex: 'aurea_map.jpg', atmoColor: 0xffc468,
   sky: { zen: [0.72, 0.5, 0.18], hor: [0.98, 0.82, 0.48] },
   pal: { lo: [0.62, 0.42, 0.2], hi: [0.9, 0.68, 0.34], rock: [0.45, 0.3, 0.18] },
   terr: [57, 1800], desc: 'Crushing golden atmosphere and heavy gravity. Easy to land on, brutal to leave.',
 };
 export const FERRA = {
-  id: 'ferra', name: 'Ferra', parent: SUN, GM: 3.0136e11, R: 320000, orbitR: 2.07e10, phase0: -0.75,
+  id: 'ferra', name: 'Ferra', parent: SUN, GM: 3.0136e11, R: 320000, orbitR: 1.035e10, phase0: -0.75,
   atmo: { height: 50000, rho0: 0.2, H: 5000 }, rotPeriod: 65000, color: '#d9643a', tex: 'ferra_map.jpg', atmoColor: 0xff9a70,
   sky: { zen: [0.5, 0.33, 0.27], hor: [0.86, 0.62, 0.5] },
   pal: { lo: [0.72, 0.36, 0.2], hi: [0.95, 0.6, 0.4], rock: [0.5, 0.26, 0.17] },
   terr: [73, 2100], desc: 'Red desert world with thin air. Parachutes help, but bring an engine.',
 };
 export const PEBBLE = {
-  id: 'pebble', name: 'Pebble', parent: FERRA, GM: 1.857e10, R: 130000, orbitR: 3.2e6, phase0: 0.6,
+  id: 'pebble', name: 'Pebble', parent: FERRA, GM: 1.857e10, R: 130000, orbitR: 1.6e6, phase0: 0.6,
   locked: true, color: '#9a938a', tex: 'pebble_map.jpg',
   pal: { lo: [0.6, 0.58, 0.55], hi: [0.85, 0.82, 0.78], rock: [0.48, 0.46, 0.44] },
   terr: [91, 1300], desc: "Ferra's little moon. Barely any gravity.",
 };
 export const JOVARA = {
-  id: 'jovara', name: 'Jovara', parent: SUN, GM: 2.825e14, R: 6.0e6, orbitR: 4.5e10, phase0: 2.9,
+  id: 'jovara', name: 'Jovara', parent: SUN, GM: 2.825e14, R: 6.0e6, orbitR: 2.25e10, phase0: 2.9,
   atmo: { height: 200000, rho0: 18, H: 30000 }, rotPeriod: 36000, gas: true, maxTerrain: 0,
   color: '#7fd6c4', tex: 'jovara_map.jpg', atmoColor: 0x8fe6d2,
   sky: { zen: [0.2, 0.5, 0.48], hor: [0.75, 0.92, 0.8] },
   desc: 'Gas giant. There is no ground, only deeper and deeper cloud.',
 };
 export const GLACIA = {
-  id: 'glacia', name: 'Glacia', parent: JOVARA, GM: 2.07e11, R: 300000, orbitR: 4.3e7, phase0: -1.4,
+  id: 'glacia', name: 'Glacia', parent: JOVARA, GM: 2.07e11, R: 300000, orbitR: 2.15e7, phase0: -1.4,
   locked: true, color: '#bfe6ff', tex: 'glacia_map.jpg',
   pal: { lo: [1.0, 1.1, 1.2], hi: [1.45, 1.5, 1.55], rock: [0.62, 0.74, 0.86] },
   terr: [113, 1700], desc: "Jovara's frozen moon of blue ice ridges.",

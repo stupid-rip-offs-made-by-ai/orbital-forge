@@ -89,7 +89,7 @@ def planet():
 
 
 def moon():
-    W, H = 1024, 512
+    W, H = 2048, 1024
     p, lat = sphere_grid(W, H)
     base = norm01(fbm3(p, 7, 3, 0.55, 600))
     maria = np.clip((norm01(fbm3(p, 4, 1.6, 0.5, 700)) - 0.6) * 4, 0, 1)

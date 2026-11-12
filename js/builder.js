@@ -276,8 +276,8 @@ export class Builder {
       html += `<tr><td>${s.num}${has ? `<small>${s.engines.join(', ')}</small>` : '<small>no engine</small>'}</td><td>${fmt(s.dvV)}<small>${fmt(s.dvS)} at sea level</small></td><td class="${twrCls}">${has ? s.twrS.toFixed(2) : '–'}<small>vac ${has ? s.twrV.toFixed(2) : '–'}</small></td></tr>`;
     }
     html += '</table>';
-    html += '<div class="st-goals"><div>To orbit Verdan <b>≈ 3,400 m/s</b></div><div>Orbit → land on Lumen <b>≈ +1,900</b></div><div>Lumen → home <b>≈ +900</b></div>'
-      + '<div>Orbit → Ferra (land with chutes) <b>≈ +1,700</b></div><div>Ferra → home <b>≈ +1,900</b></div><div>Orbit → Aurea / Jovara flyby <b>≈ +1,100 / +2,000</b></div></div>';
+    html += '<div class="st-goals"><div>To orbit Verdan <b>≈ 3,400 m/s</b></div><div>Orbit → land on Lumen <b>≈ +1,800</b></div><div>Lumen → home <b>≈ +900</b></div>'
+      + '<div>Orbit → Ferra (land with chutes) <b>≈ +1,900</b></div><div>Ferra → home <b>≈ +2,000</b></div><div>Orbit → Aurea / Jovara flyby <b>≈ +1,150 / +2,250</b></div></div>';
     if (a.warnings.length) html += '<ul class="st-warn">' + a.warnings.map((w) => `<li>${w}</li>`).join('') + '</ul>';
     const e = this.parts[this.sel];
     if (e) {

@@ -2,7 +2,7 @@
 // everything is drawn in full 3D around a floating origin centred on the camera target.
 import * as THREE from './vendor/three.min.js';
 import { P, SUN, BODIES, LAUNCH_TH, PAD_H, bodyPos, bodyRot, terrain3, wrapA, soiBody } from './physics.js';
-import { buildRocket, updateRocket, rocketKey } from './rocketmesh.js';
+import { buildRocket, updateRocket, rocketKey, makeEnv } from './rocketmesh.js';
 import { skyMaterial, atmoMaterial, particleMaterial } from './shaders.js';
 import { fmtDist } from './hud.js';
 
@@ -18,7 +18,7 @@ const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const V = new THREE.Vector3();
 const padDip = (b, th, lat) => (b === P && Math.hypot(wrapA(th - LAUNCH_TH), lat) < 0.0025 ? 0.6 : 0);
 
-const NT = 161, NP = 81; // terrain patch grid
+const NT = 201, NP = 101; // terrain patch grid
 const GEO_LO = new THREE.SphereGeometry(1, 96, 48);
 let GEO_HI = null; // built the first time the camera gets close to a body
 const geoHi = () => GEO_HI || (GEO_HI = new THREE.SphereGeometry(1, 384, 192));
@@ -33,6 +33,13 @@ export class Renderer3D {
     r.toneMapping = THREE.ACESFilmicToneMapping;
     r.toneMappingExposure = 1.1;
     r.setClearColor(0x000000);
+    r.shadowMap.enabled = true;
+    r.shadowMap.type = THREE.PCFSoftShadowMap;
+    try { this.env = makeEnv(r); } catch (e) { this.env = null; }
+    let q = null;
+    try { q = localStorage.getItem('of_gfx'); } catch (e) { /* storage unavailable */ }
+    const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+    this.quality = q === 'high' || q === 'low' ? q : coarse ? 'low' : 'high';
     const scene = (this.scene = new THREE.Scene());
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.3, 5e12);
     scene.add(this.camera);
@@ -40,6 +47,9 @@ export class Renderer3D {
     scene.fog = this.fog;
 
     this.sun = new THREE.DirectionalLight(0xfff2dc, 3.2);
+    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.normalBias = 0.06;
     scene.add(this.sun, this.sun.target);
     this.hemi = new THREE.HemisphereLight(0xbfd8ff, 0x403424, 0.55);
     scene.add(this.hemi);
@@ -81,14 +91,20 @@ export class Renderer3D {
   resize() {
     const w = this.canvas.clientWidth || innerWidth, h = this.canvas.clientHeight || innerHeight;
     this.W = w; this.H = h;
-    const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
-    this.dpr = Math.min(coarse ? 1.5 : 2, window.devicePixelRatio || 1);
+    this.dpr = Math.min(this.quality === 'high' ? 2 : 1.25, window.devicePixelRatio || 1);
     this.r.setPixelRatio(this.dpr);
     this.r.setSize(w, h, false);
     this.overlay.width = Math.round(w * this.dpr);
     this.overlay.height = Math.round(h * this.dpr);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+  }
+
+  /** 'high': sharper image and real-time shadows. 'low': faster, for phones and older computers. */
+  setQuality(q) {
+    this.quality = q;
+    try { localStorage.setItem('of_gfx', q); } catch (e) { /* ignore */ }
+    this.resize();
   }
 
   // ------------------------------------------------------------------ construction
@@ -99,6 +115,7 @@ export class Renderer3D {
     const mat = b.star
       ? new THREE.MeshBasicMaterial({ map: tex(b.tex), fog: false })
       : new THREE.MeshStandardMaterial({ map: tex(b.tex), roughness: b.ocean ? 0.8 : 1, metalness: 0 });
+    if (!b.star && !b.gas && b.id !== 'aurea') { mat.bumpMap = mat.map; mat.bumpScale = b.R * (b.ocean ? 0.005 : 0.02); } // surface relief from the map's brightness
     const sphere = new THREE.Mesh(GEO_LO, mat);
     sphere.rotation.x = Math.PI / 2;
     sphere.scale.setScalar(b.R - margin);
@@ -172,6 +189,7 @@ export class Renderer3D {
   ensurePatch(B) {
     if (B.patch) return;
     B.patch = this.makePatch(new THREE.MeshStandardMaterial({ map: this.detail, vertexColors: true, roughness: 0.95, metalness: 0 }), true);
+    B.patch.mesh.receiveShadow = true;
     B.spin.add(B.patch.mesh);
     if (B.b.ocean) {
       B.water = this.makePatch(new THREE.MeshStandardMaterial({ color: 0x1b5c9e, roughness: 0.12, metalness: 0.05, transparent: true, opacity: 0.86 }), false);
@@ -263,6 +281,8 @@ export class Renderer3D {
     const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 8), new THREE.MeshStandardMaterial({ color: 0xff3020, emissive: 0xff2010, emissiveIntensity: 2 }));
     beacon.position.set(0, 28.6, -8.5);
     pad.add(slab, trench, s1, s2, tower, arm1, arm2, beacon);
+    slab.receiveShadow = trench.receiveShadow = true;
+    tower.castShadow = arm1.castShadow = arm2.castShadow = true;
     pad.position.set((P.R + PAD_H) * Math.cos(LAUNCH_TH), (P.R + PAD_H) * Math.sin(LAUNCH_TH), 0);
     pad.rotation.z = LAUNCH_TH - Math.PI / 2;
     this.byId[P.id].spin.add(pad);
@@ -353,7 +373,13 @@ export class Renderer3D {
     const sd = this.sunDir.set(sunP.x - camW.x, sunP.y - camW.y, -camW.z);
     const sunDist = sd.length();
     sd.divideScalar(sunDist || 1);
-    this.sun.position.set(sd.x, sd.y, sd.z + 0.35).normalize();
+    this.sun.position.set(sd.x, sd.y, sd.z + 0.35).normalize().multiplyScalar(400);
+    const shadows = this.quality === 'high' && !f.map;
+    if (this.sun.castShadow !== shadows) this.sun.castShadow = shadows;
+    if (shadows) {
+      const S = Math.max(28, v.length * 1.4 + 12), sc = this.sun.shadow.camera;
+      if (sc.right !== S) { sc.left = -S; sc.right = S; sc.top = S; sc.bottom = -S; sc.near = 50; sc.far = 800; sc.updateProjectionMatrix(); }
+    }
 
     // sky & atmosphere of whatever body the camera is at
     const cb = soiBody(camW.x, camW.y, t), cB = this.byId[cb.id];
@@ -424,7 +450,7 @@ export class Renderer3D {
       const key = rocketKey(ves.parts);
       if (!g || g.userData.key !== key) {
         if (g) this.disposeGroup(g);
-        g = buildRocket(ves.parts);
+        g = buildRocket(ves.parts, this.env);
         this.scene.add(g);
         this.vGroups.set(ves, g);
       }

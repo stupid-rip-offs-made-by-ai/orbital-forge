@@ -132,7 +132,7 @@ def craters(p, v, n, seed, big=0.2):
 
 
 def bodies():
-    W, H = 1024, 512
+    W, H = 2048, 1024
     p, lat = g3.sphere_grid(W, H)
     n1 = g3.norm01(g3.fbm3(p, 7, 2.5, 0.55, 1100)); n2 = g3.norm01(g3.fbm3(p, 5, 6, 0.5, 1200))
     # Cinder: scorched brown rock with dark lava plains and craters

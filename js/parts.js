@@ -6,16 +6,20 @@ export const PARTS = {
     desc: 'One-seat capsule with built-in reaction wheels and a heat shield.' },
   pod_3: { name: 'Trio Command Pod', cat: 'Command', type: 'pod', mass: 2.7, w: 2.5, h: 1.9, torque: 45, crash: 14, cd: 0.5, cdTail: 1.1,
     desc: 'Three-seat 2.5 m capsule with strong reaction wheels for big ships.' },
+  pod_can: { name: 'Scout Lander Can', cat: 'Command', type: 'pod', mass: 0.6, w: 1.25, h: 1.1, torque: 8, crash: 10, cd: 0.8,
+    desc: 'Light one-seat cabin for landers. No heat shield, so keep it gentle.' },
   probe: { name: 'Wisp Probe Core', cat: 'Command', type: 'pod', mass: 0.1, w: 1.25, h: 0.5, torque: 5, crash: 8,
     desc: 'Lightweight uncrewed control core. Weaker reaction wheels.' },
   gyro: { name: 'Gyro Ring', cat: 'Command', type: 'gyro', mass: 0.12, w: 1.25, h: 0.35, torque: 25,
     desc: 'Extra reaction wheels. Makes heavy rockets turn faster.' },
 
   tank_s: { name: 'FT-100 Tank', cat: 'Fuel', type: 'tank', mass: 0.0625, fuel: 0.5, w: 1.25, h: 0.6, desc: 'Small liquid fuel tank.' },
+  tank_s2: { name: 'FT-200 Tank', cat: 'Fuel', type: 'tank', mass: 0.125, fuel: 1.0, w: 1.25, h: 1.0, desc: 'Short liquid fuel tank.' },
   tank_m: { name: 'FT-400 Tank', cat: 'Fuel', type: 'tank', mass: 0.25, fuel: 2.0, w: 1.25, h: 1.9, desc: 'Medium liquid fuel tank.' },
   tank_l: { name: 'FT-800 Tank', cat: 'Fuel', type: 'tank', mass: 0.5, fuel: 4.0, w: 1.25, h: 3.75, desc: 'Long liquid fuel tank.' },
   tank_xl_s: { name: 'Goliath Half Tank', cat: 'Fuel', type: 'tank', mass: 1.0, fuel: 8.0, w: 2.5, h: 1.9, desc: 'Short 2.5 m tank.' },
   tank_xl: { name: 'Goliath 2.5 m Tank', cat: 'Fuel', type: 'tank', mass: 2.0, fuel: 16.0, w: 2.5, h: 3.75, desc: 'Huge 2.5 m tank for heavy lifters.' },
+  tank_xxl: { name: 'Goliath Long Tank', cat: 'Fuel', type: 'tank', mass: 4.0, fuel: 32.0, w: 2.5, h: 7.5, desc: 'The biggest tank there is. For super-heavy lifters.' },
 
   eng_ember: { name: 'Ember Thruster', cat: 'Engines', type: 'engine', mass: 0.13, w: 0.9, h: 0.9, thrust: 20, ispVac: 320, ispSL: 270, gimbal: 3, plume: 3,
     desc: 'Tiny efficient engine for probes and landers.' },
@@ -23,12 +27,18 @@ export const PARTS = {
     desc: 'All-rounder for upper stages and landers. Good in air and in space.' },
   eng_pivot: { name: 'Pivot Lifter', cat: 'Engines', type: 'engine', mass: 1.5, w: 1.25, h: 1.6, thrust: 215, ispVac: 320, ispSL: 250, gimbal: 3, plume: 7,
     desc: 'Workhorse first-stage engine with thrust vectoring.' },
+  eng_hawk: { name: 'Hawk Lifter', cat: 'Engines', type: 'engine', mass: 2.0, w: 1.25, h: 1.8, thrust: 400, ispVac: 305, ispSL: 275, gimbal: 2, plume: 9,
+    desc: 'Nearly twice the thrust of the Pivot. Thirsty, but it gets heavy rockets moving.' },
   eng_void: { name: 'Void Vacuum Engine', cat: 'Engines', type: 'engine', mass: 0.5, w: 1.25, h: 1.5, thrust: 60, ispVac: 345, ispSL: 85, gimbal: 4, plume: 6,
     desc: 'Huge efficiency in space, useless at sea level.' },
   eng_nova: { name: 'Nova Nuclear Engine', cat: 'Engines', type: 'engine', mass: 3.0, w: 1.25, h: 3.0, thrust: 60, ispVac: 800, ispSL: 185, gimbal: 0, plume: 7, hot: true,
     desc: 'Heavy and weak, but more than twice as fuel-efficient as anything else. Made for trips between planets.' },
+  eng_kestrel: { name: 'Kestrel Upper Engine', cat: 'Engines', type: 'engine', mass: 1.8, w: 2.5, h: 2.2, thrust: 300, ispVac: 345, ispSL: 150, gimbal: 4, plume: 9,
+    desc: '2.5 m vacuum engine for big upper stages and heavy landers.' },
   eng_titan: { name: 'Titan Booster Engine', cat: 'Engines', type: 'engine', mass: 6.0, w: 2.5, h: 3.0, thrust: 1500, ispVac: 310, ispSL: 285, gimbal: 2, plume: 14,
     desc: 'Monstrous 2.5 m main engine.' },
+  srb_flea: { name: 'Flea Mini Booster', cat: 'Engines', type: 'srb', mass: 0.2, fuel: 0.7, w: 0.9, h: 1.8, thrust: 130, ispVac: 180, ispSL: 160, gimbal: 0, plume: 5, cdTail: 0.9,
+    desc: 'Small solid kicker. Cheap extra push off the pad.' },
   srb_bolt: { name: 'Bolt Solid Booster', cat: 'Engines', type: 'srb', mass: 0.75, fuel: 2.81, w: 1.25, h: 3.6, thrust: 227, ispVac: 195, ispSL: 170, gimbal: 0, plume: 9, cdTail: 0.9,
     desc: 'Solid rocket: cheap thrust that cannot be throttled or shut down. Great on the sides.' },
   srb_thor: { name: 'Thor Heavy Booster', cat: 'Engines', type: 'srb', mass: 1.5, fuel: 8.0, w: 1.25, h: 6.5, thrust: 600, ispVac: 215, ispSL: 190, gimbal: 0, plume: 13, cdTail: 0.9,
@@ -36,23 +46,33 @@ export const PARTS = {
 
   decoupler: { name: 'Stack Decoupler', cat: 'Structure', type: 'decoupler', mass: 0.05, w: 1.25, h: 0.3, desc: 'Separates stages. Everything below it drops away.' },
   decoupler_l: { name: 'Large Decoupler', cat: 'Structure', type: 'decoupler', mass: 0.4, w: 2.5, h: 0.4, desc: '2.5 m stage separator.' },
+  truss: { name: 'Girder Truss', cat: 'Structure', type: 'struct', mass: 0.08, w: 1.25, h: 1.2, desc: 'Light open framework. A spacer between parts.' },
+  shield: { name: 'Heat Shield', cat: 'Structure', type: 'shield', mass: 0.15, w: 1.25, h: 0.25, crash: 16, cdTail: 1.3,
+    desc: 'Put it at the very bottom of a capsule: more drag on the way down and it survives harder landings.' },
+  shield_l: { name: 'Large Heat Shield', cat: 'Structure', type: 'shield', mass: 0.6, w: 2.5, h: 0.4, crash: 16, cdTail: 1.3, desc: '2.5 m heat shield.' },
   adapter: { name: '2.5→1.25 Adapter', cat: 'Structure', type: 'adapter', mass: 0.15, w: 2.5, h: 1.2, desc: 'Joins 1.25 m parts on top to 2.5 m parts below.' },
 
   nose: { name: 'Aero Nose Cone', cat: 'Aero', type: 'cone', mass: 0.06, w: 1.25, h: 1.6, cd: 0.3, desc: 'Slashes drag when it is the topmost part. Also caps side boosters.' },
   nose_l: { name: 'Large Nose Cone', cat: 'Aero', type: 'cone', mass: 0.25, w: 2.5, h: 2.4, cd: 0.3, desc: '2.5 m nose cone.' },
   fins: { name: 'Stabilizer Fin Ring', cat: 'Aero', type: 'fins', mass: 0.15, w: 1.25, h: 1.0, drawW: 3.4, fin: 7,
     desc: 'Pulls the centre of pressure back so the rocket flies nose-first. Put it near the bottom.' },
+  fins_l: { name: 'Large Fin Ring', cat: 'Aero', type: 'fins', mass: 0.5, w: 2.5, h: 1.6, drawW: 6.8, fin: 20, finScale: 2,
+    desc: 'Big fins for 2.5 m rockets.' },
   winglet: { name: 'Delta Winglet', cat: 'Aero', type: 'fin', sideOnly: true, mass: 0.04, w: 1.0, h: 1.3, fin: 2.4,
     desc: 'Side-mounted fin pair. Mount low on the rocket for stability.' },
 
   chute: { name: 'Drogue-R Parachute', cat: 'Utility', type: 'chute', mass: 0.1, w: 0.8, h: 0.4, chuteCdA: 480, cd: 0.6,
     desc: 'Deploy in atmosphere below ~400 m/s for a gentle landing. Fast deploys will rip it.' },
+  chute_l: { name: 'Main Parachute XL', cat: 'Utility', type: 'chute', mass: 0.3, w: 1.25, h: 0.5, chuteCdA: 1400, cd: 0.6,
+    desc: 'Huge canopy for heavy capsules and landers.' },
   chute_r: { name: 'Radial Parachute', cat: 'Utility', type: 'chute', sideOnly: true, mass: 0.08, w: 0.35, h: 0.7, chuteCdA: 360,
     desc: 'Side-mounted parachute pair for extra braking on heavy landers.' },
   legs: { name: 'Lander Legs', cat: 'Utility', type: 'legs', mass: 0.15, w: 1.25, h: 0.4, drawW: 3.4, drawH: 2.4, crash: 12,
     desc: 'Deploy automatically when they are on the bottom stage. Place above the lander engine.' },
   legs_l: { name: 'Heavy Lander Legs', cat: 'Utility', type: 'legs', mass: 0.5, w: 2.5, h: 0.5, drawW: 6.8, drawH: 4.8, legScale: 2, crash: 12,
     desc: 'Wide legs for 2.5 m landers.' },
+  lab: { name: 'Science Lab', cat: 'Utility', type: 'struct', mass: 1.2, w: 1.25, h: 1.7, desc: 'Crewed lab module with portholes. Turns a rocket into a space station.' },
+  dish: { name: 'Comm Dish', cat: 'Utility', type: 'deco', sideOnly: true, mass: 0.03, w: 1.0, h: 1.0, desc: 'Side-mounted antenna dishes for calling home.' },
   solar: { name: 'Solar Panel', cat: 'Utility', type: 'deco', sideOnly: true, mass: 0.03, w: 2.2, h: 0.9,
     desc: 'Side-mounted solar wings. They make any ship look like a proper spacecraft.' },
 };
@@ -70,7 +90,7 @@ for (const [id, p] of Object.entries(PARTS)) {
 }
 export const isEngine = (d) => d.type === 'engine' || d.type === 'srb';
 /** Parts that may hang off the side of the rocket (always as a mirrored pair). */
-export const sideOk = (d) => !['pod', 'decoupler', 'legs', 'fins', 'adapter', 'gyro'].includes(d.type);
+export const sideOk = (d) => !['pod', 'decoupler', 'legs', 'fins', 'adapter', 'gyro', 'shield'].includes(d.type);
 
 /**
  * A design is a list, top to bottom. Each entry is a part id, or
@@ -81,6 +101,8 @@ export const PRESETS = {
   'Orbiter Mk1': ['chute', 'pod_c1', 'decoupler', 'tank_m', 'eng_void', 'decoupler', 'tank_l', 'tank_m', 'fins', 'eng_pivot'],
   'Booster Buddy': ['chute', 'pod_c1', 'decoupler', 'tank_m', 'eng_spark', 'decoupler',
     { id: 'tank_l', side: ['nose', 'srb_bolt'] }, { id: 'tank_m', side: ['winglet'] }, 'eng_pivot'],
+  'Titan Heavy': ['chute_l', 'pod_3', 'shield_l', 'decoupler_l', 'tank_xl_s', 'eng_kestrel', 'decoupler_l',
+    { id: 'tank_xxl', side: ['nose', 'tank_l', 'tank_l', 'eng_hawk'] }, 'fins_l', 'eng_titan'],
   'Lumen Lander': ['chute', 'pod_c1', 'tank_m', 'legs', 'eng_void', 'decoupler', 'tank_l', 'tank_l', 'eng_void',
     'decoupler', 'adapter', 'tank_xl', 'tank_xl', 'fins', 'eng_titan'],
   'Ferra Explorer': ['chute', { id: 'pod_c1', side: ['chute_r'] }, { id: 'tank_m', side: ['solar'] }, 'legs', 'eng_spark', 'decoupler',

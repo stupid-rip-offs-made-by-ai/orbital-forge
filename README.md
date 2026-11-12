@@ -5,7 +5,7 @@ A 3D rocket-building and orbital-physics sandbox that runs in the browser. You b
 ## Features
 
 - **Full 3D.** Rockets are built from lathed 3D parts with fins, legs and engine bells. Verdan and Lumen are textured spheres with clouds, an atmosphere glow and polar ice. Near the ground you fly over real 3D terrain with oceans. There's a sky that fades to stars as you climb, a sun, and 3D exhaust plumes, smoke and explosions. Drag to orbit the camera anywhere.
-- **Rocket builder.** 29 parts: capsules, probe cores, a gyro ring, five sizes of tank, seven engines (including a nuclear engine and two solid boosters), decouplers, an adapter, nose cones, fins, parachutes, landing legs and solar panels. The builder shows Δv and TWR for every burn, warns you about problems, and saves your designs locally.
+- **Rocket builder.** 42 parts: capsules, a lander can, probe cores, a gyro ring, seven sizes of tank, twelve engines and boosters (including a nuclear engine), decouplers, a truss, heat shields, an adapter, nose cones, fins, parachutes, landing legs, a science lab, solar panels and comm dishes. The builder shows Δv and TWR for every burn, warns you about problems, and saves your designs locally.
 - **Side mounts.** Select a part, press **⇔ Sides**, and whatever you tap is mounted on both sides of it: boosters with nose cones, drop tanks with their own engines, winglets, solar panels or radial parachutes. Side boosters fire with their stage and drop away when you press STAGE.
 - **A whole solar system.** The star Solara, five planets and three moons:
   - **Cinder**: scorched airless rock close to the star.
@@ -13,6 +13,7 @@ A 3D rocket-building and orbital-physics sandbox that runs in the browser. You b
   - **Verdan**: home, with its moon **Lumen**.
   - **Ferra**: red desert with thin air, and its tiny moon **Pebble**.
   - **Jovara**: a gas giant with no ground, and its frozen moon **Glacia**.
+- **Graphics.** Real-time shadows, soft reflections on metal parts, surface relief on planets and moons, engine glow, and 2K planet maps. The pause menu has a **Graphics: High / Low** switch; touch devices start on Low.
 - **Trip planning.** Tap any planet or moon on the map to target it. A guidance line shows when the launch window opens, roughly how big the burn is, how long the trip takes, and your closest approach. Time warp goes up to 1,000,000× and drops automatically when you enter a new sphere of influence.
 - **Physics.**
   - Patched-conic gravity with a velocity-Verlet integrator, so orbits stay stable even at 100,000× warp.
@@ -80,6 +81,7 @@ assets/textures/skins/  3D part skins (wrapped around each part)
 tools/gen_textures.py     2D textures (needs numpy + Pillow)
 tools/gen_3d_textures.py  3D maps and skins
 tools/gen_new_assets.py   icons, skins and planet maps added with the solar-system update
+tools/gen_parts_v4.py     icons and skins for the 13 newest parts
 ```
 
 ## Modding

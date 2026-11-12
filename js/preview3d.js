@@ -1,7 +1,7 @@
 // Small rotating 3D preview of the rocket in the builder.
 import * as THREE from './vendor/three.min.js';
 import { Vessel } from './vessel.js';
-import { buildRocket, updateRocket } from './rocketmesh.js';
+import { buildRocket, updateRocket, makeEnv } from './rocketmesh.js';
 
 export class Preview3D {
   constructor(canvas) {
@@ -10,6 +10,7 @@ export class Preview3D {
     this.r.outputColorSpace = THREE.SRGBColorSpace;
     this.r.toneMapping = THREE.ACESFilmicToneMapping;
     this.scene = new THREE.Scene();
+    try { this.env = makeEnv(this.r); } catch (e) { this.env = null; }
     this.cam = new THREE.PerspectiveCamera(32, 1, 0.1, 500);
     const sun = new THREE.DirectionalLight(0xffffff, 3);
     sun.position.set(4, 6, 8);
@@ -32,7 +33,7 @@ export class Preview3D {
     this.group = null;
     if (!ids.length) return;
     const v = Vessel.fromIds(ids);
-    this.group = buildRocket(v.parts);
+    this.group = buildRocket(v.parts, this.env);
     updateRocket(this.group, v, 1, 0);
     this.group.position.y = -v.minS; // stand on the ground
     this.group.userData.inner.position.y = 0;
